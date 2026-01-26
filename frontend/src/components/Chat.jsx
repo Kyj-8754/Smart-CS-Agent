@@ -37,7 +37,12 @@ const Chat = ({ user, onLogout }) => {
     setLoading(true);
 
     try {
-      const response = await sendMessage(input);
+      const conversationHistory = messages.map(msg => ({
+        role: msg.role,
+        content: msg.content
+      }));
+      
+      const response = await sendMessage(input, conversationHistory);
       
       const assistantMessage = {
         id: Date.now() + 1,

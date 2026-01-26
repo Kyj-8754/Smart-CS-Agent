@@ -99,7 +99,7 @@ const AGENT_RESPONSES = {
 };
 
 // Mock 응답 생성 함수
-export const sendMessage = async (query) => {
+export const sendMessage = async (query, conversationHistory = []) => {
   await new Promise(resolve => setTimeout(resolve, 1000));
   
   // 에이전트 선택
@@ -146,9 +146,12 @@ const api = axios.create({
   },
 });
 
-export const sendMessage = async (query) => {
+export const sendMessage = async (query, conversationHistory = []) => {
   try {
-    const response = await api.post('/chat', { query });
+    const response = await api.post('/chat', { 
+      query,
+      conversation_history: conversationHistory 
+    });
     return response.data;
   } catch (error) {
     console.error('Chat API Error:', error);
