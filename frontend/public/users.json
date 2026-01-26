@@ -1,0 +1,18 @@
+{
+  "users": [
+    {
+      "id": "user_001",
+      "username": "admin",
+      "password": "admin123",
+      "name": "관리자",
+      "role": "admin"
+    },
+    {
+      "id": "user_002",
+      "username": "test",
+      "password": "test123",
+      "name": "테스트 사용자",
+      "role": "user"
+    }
+  ]
+}
