@@ -1,0 +1,22 @@
+# Python 관련
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+build/
+dist/
+
+# 데이터 및 모델 (용량이 크거나 로컬용)
+*.index          # FAISS 인덱스 파일
+*.csv            # 데이터셋 (보안/용량 문제로 보통 제외)
+data/            # 데이터 폴더 전체
+
+# 환경 변수 및 설정
+.env
+.ipynb_checkpoints/
+
+# IDE 관련
+.vscode/
+.idea/
