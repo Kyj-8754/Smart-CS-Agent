@@ -394,11 +394,15 @@ class CachedRAGKnowledgeService:
     
     def __init__(self, 
 <<<<<<< HEAD
+<<<<<<< HEAD
                  csv_path: str = "backend/data/faq_database.csv",
                  cache_file: str = "backend/data/answer_cache.json",
 =======
                  csv_path: str = "data/faq_database.csv",
 >>>>>>> origin/kyj/transaction
+=======
+                 csv_path: str = "backend/data/faq_database_48.csv",
+>>>>>>> origin/feat/ohs-rag
                  model_name: str = "jhgan/ko-sroberta-multitask",
                  enable_conversation: bool = True,
                  enable_cache: bool = True,
@@ -700,6 +704,93 @@ class CachedRAGKnowledgeService:
             action = re.sub(r'\([^)]*\)', '', action).strip()
             return action[:50]
         return None
+<<<<<<< HEAD
+=======
+    
+    def _search_faq(self, query: str, category: str = None, top_k: int = 3) -> List[Dict]:
+        """FAQ 검색 (키워드 부스팅 포함)"""
+        if self.index is None:
+            return []
+        
+        try:
+            query_embedding = self.model.encode([query], convert_to_numpy=True)
+            faiss.normalize_L2(query_embedding)
+            
+            scores, indices = self.index.search(query_embedding, min(top_k * 2, len(self.faq_df)))
+            
+            results = []
+            for score, idx in zip(scores[0], indices[0]):
+                if score < 0.2:
+                    continue
+                
+                faq_row = self.faq_df.iloc[idx]
+                
+                if category and faq_row['category'] != category:
+                    continue
+                
+                final_score = float(score)
+                
+                # 키워드 부스팅 (단어가 포함되어 있으면 점수 보정)
+                if 'keywords' in self.faq_df.columns and pd.notna(faq_row['keywords']):
+                    keywords = [k.strip() for k in faq_row['keywords'].split(',')]
+                    for kw in keywords:
+                        if kw in query:
+                            final_score += 0.1  # 키워드 일치 시 부스팅
+                            break
+                
+                results.append({
+                    'faq_id': faq_row['id'],
+                    'category': faq_row['category'],
+                    'question': faq_row['question'],
+                    'answer': faq_row['answer'],
+                    'similarity_score': min(final_score, 1.0)
+                })
+                
+                if len(results) >= top_k:
+                    break
+            
+            # 부스팅된 점수로 재정렬
+            results.sort(key=lambda x: x['similarity_score'], reverse=True)
+            return results
+            
+        except Exception as e:
+            logger.error(f"FAQ 검색 실패: {e}")
+            return []
+    
+    def _generate_ai_answer(self, query: str, faq_results: List[Dict]) -> str:
+        """AI 답변 생성"""
+        if not self.ai_client:
+            return "AI 답변 생성 불가"
+        
+        try:
+            context = ""
+            if faq_results:
+                context = "참고 FAQ:\n"
+                for faq in faq_results[:2]:
+                    context += f"Q: {faq['question']}\nA: {faq['answer'][:100]}...\n\n"
+            
+            response = self.ai_client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "친절한 고객 지원 AI입니다."},
+                    {"role": "user", "content": f"{context}\n질문: {query}"}
+                ],
+                temperature=0.7,
+                max_tokens=400
+            )
+            
+            answer = response.choices[0].message.content.strip()
+            answer += "\n\n🤖 (AI 생성 답변)"
+            return answer
+            
+        except Exception as e:
+            logger.error(f"AI 생성 실패: {e}")
+            return "AI 답변 생성 중 오류가 발생했습니다."
+    
+    def _generate_out_of_scope_message(self) -> str:
+        """범위 밖 메시지"""
+        return """죄송합니다. 다음 분야만 지원 가능합니다:
+>>>>>>> origin/feat/ohs-rag
 
 
 # 편의를 위한 alias
