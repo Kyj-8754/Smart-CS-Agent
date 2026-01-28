@@ -43,33 +43,62 @@ class TransactionService:
                 row = {k: order.get(k, "") for k in fieldnames}
                 writer.writerow(row)
 
-    def _find_active_orders(self, user_id: str):
+    def _find_recent_orders(self, user_id: str, status_filter: list = None, days_limit: int = 30):
         """
-        유저의 주문 중 '진행 중'인 주문 목록을 반환합니다.
-        반환: (active_orders_list, most_recent_order)
+        유저의 최근 주문 목록을 반환합니다. (기본 30일)
+        status_filter가 있으면 해당 상태만 필터링합니다.
         """
+        if not user_id:
+             return [], None
+             
         user_orders = [o for o in self.orders.values() if o.get('customer_id') == user_id]
         
-        if not user_orders:
-            return [], None
-            
-        # 활성 상태 정의
-        active_statuses = ["배송중", "상품준비중"]
-        active_orders = [o for o in user_orders if o['status'] in active_statuses]
+        # 날짜 필터링
+        from datetime import datetime, timedelta
+        cutoff_date = datetime.now() - timedelta(days=days_limit)
         
-        # 시간순 정렬 (최신순) - order_date가 있으면 사용, 없으면 order_id 역순
-        def sort_key(x):
-            if 'order_date' in x and x['order_date']:
-                 return x['order_date']
-            return x['order_id']
-            
-        sorted_orders = sorted(user_orders, key=sort_key, reverse=True)
-        sorted_active = sorted(active_orders, key=sort_key, reverse=True)
+        recent_orders = []
+        for o in user_orders:
+            # 주문 날짜 파싱 (ISO format presumed: YYYY-MM-DDTHH:MM:SS)
+            try:
+                # 간단한 파싱 시도
+                o_date = datetime.fromisoformat(o['order_date'])
+                if o_date >= cutoff_date:
+                    recent_orders.append(o)
+            except ValueError:
+                # 날짜 형식이 안맞으면 건너뛰거나 포함 (여기선 안전하게 건너뜀)
+                continue
+                
+        # 상태 필터링
+        if status_filter:
+            recent_orders = [o for o in recent_orders if o['status'] in status_filter]
         
-        most_recent = sorted_orders[0] if sorted_orders else None
+        # 정렬: 최신순
+        recent_orders.sort(key=lambda x: x['order_date'], reverse=True)
         
-        return sorted_active, most_recent
+        most_recent = recent_orders[0] if recent_orders else None
+        return recent_orders, most_recent
 
+    def has_active_context(self, user_id: str) -> bool:
+        """
+        유저가 답변해야 할 컨텍스트(선택지, 승인대기)가 있는지 확인합니다.
+        OFF_TOPIC으로 잘못 분류되는 것을 방지하기 위함입니다.
+        """
+        if not user_id: 
+            return False
+            
+        # 1. 승인 대기 확인
+        for txn in self.pending_transactions.values():
+            if txn.get("user_id") == user_id and txn.get("status") == "pending_approval":
+                return True
+                
+        # 2. 선택지(candidates) 확인
+        if user_id in self.user_sessions:
+            if self.user_sessions[user_id].get("candidates"):
+                return True
+                
+        return False
+        
     def process_transaction(self, intent: str, entity: str = None, user_id: str = None) -> dict:
         """
         사용자의 의도(Intent)와 엔티티(Entity)를 받아 트랜잭션을 처리합니다.
@@ -142,29 +171,45 @@ class TransactionService:
         # (취소 Intent일 때는 신중해야 하므로 여기서 바로 자동 할당하지 않음, status_check일 때만 아래 로직으로 후보군 탐색)
         
         # --- 배송 상태 조회 로직 ---
-        if "status" in intent.lower() or "조회" in intent or "배송" in intent:
+        # --- 배송 상태 조회 로직 ---
+        # intent가 조회이거나, "취소" intent지만 "조회/보여/내역" 같은 키워드가 있어서 조회로 넘어온 경우
+        is_view_request = "status" in intent.lower() or "조회" in intent or "배송" in intent
+        is_cancel_history_request = "cancel" in intent.lower() and any(k in (entity or "") for k in ["조회", "보여", "내역", "리스트"])
+        
+        if is_view_request or is_cancel_history_request:
             if not order_id and user_id:
-                active_orders, most_recent = self._find_active_orders(user_id)
+                # 필터 설정
+                target_statuses = ["배송중", "상품준비중", "배송완료"] # 기본: 최근 30일 진행/완료 주문
                 
-                # Case 1: 활성 주문이 여러 개 -> 리스트 반환하여 선택 유도
-                if len(active_orders) > 1:
-                    # 세션에 후보 리스트 저장 (선택 문맥을 위해)
-                    self.user_sessions[user_id] = {"candidates": [o['order_id'] for o in active_orders]}
+                # '취소' 관련 조 요청이면 필터 변경
+                if is_cancel_history_request or (entity and "취소" in entity):
+                    target_statuses = ["주문취소"]
                     
-                    order_list_str = "\n".join([f"- {o['item']} ({o['status']})" for o in active_orders])
+                recent_orders, most_recent = self._find_recent_orders(user_id, status_filter=target_statuses, days_limit=30)
+                
+                # Case 1: 목록이 있으면 선택 유도 또는 보여주기
+                if len(recent_orders) > 1:
+                    self.user_sessions[user_id] = {"candidates": [o['order_id'] for o in recent_orders]}
+                    
+                    status_msg = "취소된" if "주문취소" in target_statuses else "최근(30일) 진행/완료된"
+                    order_list_str = "\n".join([f"- {o['item']} ({o['status']})" for o in recent_orders])
                     return {
                         "status": "multiple_choice",
-                        "message": f"현재 진행 중인 주문이 {len(active_orders)}건 있습니다. 어떤 주문을 조회하시겠습니까?\n{order_list_str}",
-                        "data": active_orders
+                        "message": f"{status_msg} 주문이 {len(recent_orders)}건 있습니다. 어떤 주문을 조회하시겠습니까?\n{order_list_str}",
+                        "data": recent_orders
                     }
                 
-                # Case 2: 활성 주문이 1개 -> 자동 선택
-                elif len(active_orders) == 1:
-                    order_id = active_orders[0]['order_id']
+                # Case 2: 1개면 자동 선택
+                elif len(recent_orders) == 1:
+                    order_id = recent_orders[0]['order_id']
                 
-                # Case 3: 활성 주문 없음 -> 가장 최근 기록(배송완료 등) 보여주기
-                elif most_recent:
-                    order_id = most_recent['order_id']
+                # Case 3: 없음
+                elif most_recent and most_recent['status'] in target_statuses:
+                     order_id = most_recent['order_id']
+                else: 
+                     # 조건에 맞는게 없음
+                     msg = "최근 30일 내 해당 조건의 주문 내역이 없습니다."
+                     return {"status": "error", "message": msg}
 
             if not order_id:
                 msg = "조회할 주문 내역이 없습니다."
@@ -306,3 +351,12 @@ class TransactionService:
 
         
         return {"status": "error", "message": "트랜잭션 실행 실패"}
+
+    def reject_transaction(self, transaction_id: str):
+        """
+        사용자가 거절했을 때 호출되어 대기 중인 트랜잭션을 제거합니다.
+        """
+        if transaction_id in self.pending_transactions:
+            del self.pending_transactions[transaction_id]
+            return {"status": "cancelled", "message": "Transaction cancelled by user."}
+        return {"status": "error", "message": "Transaction not found."}

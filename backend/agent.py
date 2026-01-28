@@ -11,6 +11,7 @@ from services.transaction import TransactionService
 from services.validation import ValidationAgent
 from langchain_openai import ChatOpenAI
 from langchain.schema import HumanMessage, SystemMessage
+
 import settings
 
 class CSAgent:
@@ -41,12 +42,19 @@ class CSAgent:
         }
 
         # [다이어그램 로직] 주제 벗어남 판별
-        if intent == "OFF_TOPIC" or confidence < 0.5:
+        # 단, 트랜잭션 컨텍스트(선택지/승인대기)가 있다면 OFF_TOPIC이라도 TransactionService 기회 제공
+        has_context = self.transaction.has_active_context(session_id)
+        
+        if (intent == "OFF_TOPIC" or confidence < 0.5) and not has_context:
             return {
                 "answer": "해당 문의는 지원 범위를 벗어납니다. 기술, 청구, 주문 문의를 도와드릴 수 있습니다.",
                 "type": "off_topic",
                 "intent": intent
             }
+            
+        # 컨텍스트가 켜져 있으면 OFF_TOPIC이라도 트랜잭션 시도
+        if (intent == "OFF_TOPIC" or confidence < 0.5) and has_context:
+            intent = "ORDER" # TransactionService로 보내기 위한 우회 intent (내부에서는 'transaction'으로 처리됨)
 
         # ---------------------------------------------------------
         # Step 2: 분류된 인텐트에 따른 처리 (Knowledge/Transaction)
@@ -68,11 +76,46 @@ class CSAgent:
         elif intent == "ORDER" or intent == "BILLING":
             # [다이어그램 로직] 주문 관리/청구 지원 에이전트 + 유저 계정 정보(Transaction)
             # TransactionService를 통해 DB 조회 로직 실행
-            txn_result = self.transaction.process_transaction(intent, entity=query, user_id="user_001")
-            # DB 조회 결과(상태값 등)를 바탕으로 LLM이 자연스러운 문장 생성
-            final_message = await self._generate_llm_response(f"{intent} 담당", query, str(txn_result))
+            txn_result = self.transaction.process_transaction("transaction", entity=query, user_id=session_id)
+            
+            # 1. 메시지 결정 (LLM vs 서비스 메시지)
+            # 트랜잭션 서비스가 명확한 메시지를 줬으면(예: 승인 대기, 선택지) 그걸 우선
+            if txn_result.get("status") in ["pending_approval", "multiple_choice", "cancelled"]:
+                final_message = txn_result.get("message", "")
+            else:
+                # 그 외(단순 조회 결과 등)는 LLM이 자연스럽게 다듬도록 함
+                final_message = await self._generate_llm_response(f"{intent} 담당", query, str(txn_result))
+            
             response_data["data"] = txn_result
+            
+            # [IMPORTANT] Frontend UI Contract Propagation
+            if txn_result.get("status") == "pending_approval":
+                response_data["requires_approval"] = True
+                response_data["transaction_id"] = txn_result["data"]["transaction_id"]
+                response_data["approval_message"] = txn_result.get("message")
+                response_data["transaction_data"] = txn_result["data"]
 
+        elif intent == "ORDER_CANCEL":
+            # 주문 취소
+            # TransactionService를 통해 취소 로직 실행 ("cancel" 의도 전달)
+            txn_result = self.transaction.process_transaction("cancel", entity=query, user_id=session_id)
+            
+            # 메시지 결정
+            if txn_result.get("status") in ["pending_approval", "cancelled", "multiple_choice"]:
+                final_message = txn_result.get("message", "")
+            else:
+                 # 단순 안내나 실패 시 LLM 보정
+                final_message = await self._generate_llm_response("주문 취소 담당", query, str(txn_result))
+            
+            response_data["data"] = txn_result
+            
+            # 승인 대기 상태 전파 (프론트엔드 다이얼로그)
+            if txn_result.get("status") == "pending_approval":
+                response_data["requires_approval"] = True
+                response_data["transaction_id"] = txn_result["data"]["transaction_id"]
+                response_data["approval_message"] = txn_result.get("message")
+                response_data["transaction_data"] = txn_result["data"]
+            
         elif intent == "ACCOUNT_MGMT":
             # [다이어그램 로직] 계정 관리 에이전트
             final_message = await self._generate_llm_response("계정 관리", query)

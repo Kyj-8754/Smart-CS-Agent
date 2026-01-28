@@ -6,6 +6,14 @@ import './History.css';
 const History = () => {
     const [historyItems, setHistoryItems] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [currentPage, setCurrentPage] = useState(1);
+    const ITEMS_PER_PAGE = 15;
+
+    // Pagination Logic
+    const indexOfLastItem = currentPage * ITEMS_PER_PAGE;
+    const indexOfFirstItem = indexOfLastItem - ITEMS_PER_PAGE;
+    const currentItems = historyItems.slice(indexOfFirstItem, indexOfLastItem);
+    const totalPages = Math.ceil(historyItems.length / ITEMS_PER_PAGE);
 
     useEffect(() => {
         const fetchHistory = async () => {
@@ -47,7 +55,7 @@ const History = () => {
                 {historyItems.length === 0 ? (
                     <div className="no-history">대화 기록이 없습니다.</div>
                 ) : (
-                    historyItems.map(item => (
+                    currentItems.map(item => (
                         <div key={item.id} className="history-card">
                             <div className="history-header">
                                 <span className="history-date">{item.timestamp}</span>
@@ -88,6 +96,28 @@ const History = () => {
                     ))
                 )}
             </div>
+
+            {historyItems.length > ITEMS_PER_PAGE && (
+                <div className="pagination-controls">
+                    <button
+                        className="pagination-btn"
+                        onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                        disabled={currentPage === 1}
+                    >
+                        &lt; 이전
+                    </button>
+                    <span className="pagination-info">
+                        Page {currentPage} of {totalPages}
+                    </span>
+                    <button
+                        className="pagination-btn"
+                        onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                        disabled={currentPage === totalPages}
+                    >
+                        다음 &gt;
+                    </button>
+                </div>
+            )}
         </div>
     );
 };

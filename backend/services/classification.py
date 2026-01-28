@@ -13,7 +13,7 @@ from langchain_core.output_parsers import PydanticOutputParser
 from pydantic import BaseModel, Field
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain.schema import Document
+from langchain_core.documents import Document
 
 load_dotenv()
 
@@ -91,7 +91,8 @@ class ClassificationService:
         keywords = {
             "TECH_SUPPORT": ["오류", "안 됨", "멈춤", "설치", "실행", "전원", "안켜져", "안져요"],
             "BILLING": ["결제", "환불", "청구", "금액"],
-            "ORDER": ["주문", "배송", "취소", "변경"],
+            "ORDER": ["주문", "배송", "변경", "조회", "tracking", "status", "확인"],
+            "ORDER_CANCEL": ["취소", "철회", "반품", "무르", "안할래", "잘못", "cancel"],
             "ACCOUNT_MGMT": ["로그인", "비밀번호", "계정", "아이디", "가 기억이 안나", "찾기"]
         }
         for intent, kws in keywords.items():
