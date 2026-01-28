@@ -13,10 +13,10 @@ from openai import OpenAI
 load_dotenv()
 
 
-class ValidationService:
+class ValidationAgent:
     def __init__(self, api_key: Optional[str] = None):
         """
-        Solar Pro 3 기반 검증 에이전터 초기화
+        Solar Pro 3 기반 검증 에이전트 초기화
         
         Args:
             api_key: Upstage API Key (.env 파일 또는 환경변수 사용)
@@ -32,26 +32,6 @@ class ValidationService:
         # )
         self.model = "solar-pro3"
         
-    def validate_output(self, response_data: Dict) -> Dict:
-        """
-        에이전트 최종 응답 데이터를 검증 (agent.py 호출용 인터페이스)
-        """
-        query = response_data.get("query", "")
-        response = response_data.get("answer", "")
-        # history는 agent.py에서 관리하지 않으므로 빈 리스트 전달
-        
-        # 실제 API 호출
-        if not self.client:
-             return {"valid": True, "safe_response": response}
-             
-        validation = self.validate_response(query, response)
-        
-        return {
-            "valid": validation["valid"],
-            "safe_response": validation["filtered_response"] if not validation["valid"] else response,
-            "issues": validation["issues"]
-        }
-
     def validate_response(
         self, 
         query: str, 
@@ -134,9 +114,9 @@ class ValidationService:
 
 **평가 기준:**
 
-1. **일관성 & 유관성**: 질의와 응답 주제가 일치하며, 지원 범위 내인가?
-   - 통과: 질문과 관련된 답변 또는 정중한 거절
-   - 실패: 완전히 다른 주제, 또는 "헛소리"(Nonsense), 할루시네이션(지어낸 이야기)
+1. **일관성**: 질의와 응답 주제가 일치하는가?
+   - 통과: 질문과 관련된 답변
+   - 실패: 완전히 다른 주제 (로그인 질문에 환불 답변)
 
 2. **완전성**: 고객이 알아야 할 핵심 정보가 있는가?
    - 환불: 주문번호, 금액, 처리기간
@@ -144,22 +124,31 @@ class ValidationService:
    - 기술지원: 해결방법 또는 지원 연락처
    - 실패: 단순 "처리 중"만 제공
 
-3. **정확성**: 명백히 틀린 정보나 근거 없는 확신이 있는가?
-   - "즉시 처리" (실제 3-5일) → 실패
-   - 사실 관계 확인이 안 된 정보 → 실패
-
-4. **정책준수 및 안전**: 욕설, 비전문적 표현, 위험한 약속이 있는가?
-   - 욕설, 비하 발언 → 실패 (매우 중요)
-   - "무조건 승인", "100% 보장" → 실패
+3. **정확성**: 명백히 틀린 정보가 있는가?
+   - "환불 즉시 처리" (실제 3-5일) → 실패
+   - "무료 배송" (실제 유료) → 실패
    - 불확실하면 통과
+
+4. **정책준수**: 위험한 약속이나 부적절한 표현이 있는가?
+   - "무조건 승인", "100% 보장" → 실패
+   - 욕설, 비전문적 표현 → 실패
+   - 불확실하면 통과
+
+3. **정확성**: 잘못된 정보가 없는가?
+   - 사실 관계 확인
+   - 불확실한 진술 없음
+
+4. **정책준수**: 회사 고객 지원 원칙을 따르는가?
+   - 공손하고 전문적인 언어
+   - 불가능한 약속 없음
+   - 개인정보 보호
 
 ---
 
 **평가 절차:**
-1단계: 사용자의 의도가 고객 지원 범위를 벗어난 "헛소리"나 "욕설"인지 먼저 판단
-2단계: 에이전트의 응답이 그에 적절한 대응('거절' 또는 '지원 안내')인지 확인
-3단계: 각 기준 검토 및 "통과" 또는 "실패" 결정
-4단계: 실패 시 사용자를 위한 정중하고 안전한 '개선된 응답' 작성
+1단계: 각 기준 검토 및 문제점 파악
+2단계: 각 항목을 "통과" 또는 "실패"로 판단
+3단계: 실패 시 구체적 이유 작성
 
 **출력 형식 (JSON):**
 ```json

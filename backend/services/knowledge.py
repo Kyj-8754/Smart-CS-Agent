@@ -35,7 +35,7 @@ class AnswerCache:
     3. 캐시 히트 시 즉시 반환 (LLM 호출 없음)
     """
     
-    def __init__(self, cache_file: str = "backend/data/answer_cache.json"):
+    def __init__(self, cache_file: str = "data/answer_cache.json"):
         self.cache_file = Path(cache_file)
         self.cache = self._load_cache()
         self.embeddings_cache = {}  # 빠른 검색을 위한 임베딩 캐시
@@ -393,8 +393,8 @@ class CachedRAGKnowledgeService:
     """
     
     def __init__(self, 
-                 csv_path: str = "backend/data/faq_database.csv",
-                 cache_file: str = "backend/data/answer_cache.json",
+                 csv_path: str = "data/faq_database.csv",
+                 cache_file: str = "data/answer_cache.json",
                  model_name: str = "jhgan/ko-sroberta-multitask",
                  enable_conversation: bool = True,
                  enable_cache: bool = True,
@@ -627,75 +627,47 @@ class CachedRAGKnowledgeService:
         return stats
     
     def _search_faq(self, query: str, category: str = None, top_k: int = 3) -> List[Dict]:
-        """FAQ 검색 (키워드 부스팅 포함)"""
-        if self.index is None:
-            return []
+        """FAQ 검색"""
+        query_embedding = self.model.encode([query], convert_to_numpy=True)
+        faiss.normalize_L2(query_embedding)
         
-        try:
-            query_embedding = self.model.encode([query], convert_to_numpy=True)
-            faiss.normalize_L2(query_embedding)
+        scores, indices = self.index.search(query_embedding, min(top_k * 2, len(self.faq_df)))
+        
+        results = []
+        for score, idx in zip(scores[0], indices[0]):
+            if score < 0.2:
+                continue
             
-            scores, indices = self.index.search(query_embedding, min(top_k * 2, len(self.faq_df)))
+            faq_row = self.faq_df.iloc[idx]
             
-            results = []
-            for score, idx in zip(scores[0], indices[0]):
-                if score < 0.2:
-                    continue
-                
-                faq_row = self.faq_df.iloc[idx]
-                
-                if category and faq_row['category'] != category:
-                    continue
-                
-                final_score = float(score)
-                
-                # 키워드 부스팅 (단어가 포함되어 있으면 점수 보정)
-                if 'keywords' in self.faq_df.columns and pd.notna(faq_row['keywords']):
-                    keywords = [k.strip() for k in faq_row['keywords'].split(',')]
-                    for kw in keywords:
-                        if kw in query:
-                            final_score += 0.1  # 키워드 일치 시 부스팅
-                            break
-                
-                results.append({
-                    'faq_id': faq_row['id'],
-                    'category': faq_row['category'],
-                    'question': faq_row['question'],
-                    'answer': faq_row['answer'],
-                    'similarity_score': min(final_score, 1.0)
-                })
-                
-                if len(results) >= top_k:
-                    break
+            if category and faq_row['category'] != category:
+                continue
             
-            # 부스팅된 점수로 재정렬
-            results.sort(key=lambda x: x['similarity_score'], reverse=True)
-            return results
+            results.append({
+                'faq_id': faq_row['id'],
+                'category': faq_row['category'],
+                'question': faq_row['question'],
+                'answer': faq_row['answer'],
+                'similarity_score': float(score)
+            })
             
-        except Exception as e:
-            logger.error(f"FAQ 검색 실패: {e}")
-            return []
+            if len(results) >= top_k:
+                break
+        
+        return results
     
-    def _generate_ai_answer(self, query: str, faq_results: List[Dict]) -> str:
-        """AI 답변 생성"""
-        if not hasattr(self, 'llm_agent'):
-            return "AI 답변 생성 불가"
+    def _build_retrieved_context(self, results: List[Dict]) -> str:
+        """검색 결과를 컨텍스트로 구성"""
+        if not results:
+            return ""
         
         context = "[검색된 관련 FAQ]\n\n"
         
-        for i, faq in enumerate(faq_results, 1):
+        for i, faq in enumerate(results, 1):
             context += f"FAQ {i} (유사도: {faq['similarity_score']:.2f}):\n"
             context += f"질문: {faq['question']}\n"
             context += f"답변: {faq['answer']}\n\n"
         
-        return context
-
-    def _build_retrieved_context(self, results: List[Dict]) -> str:
-        """검색된 FAQ를 컨텍스트 문자열로 변환"""
-        context = "[관련 FAQ 정보]\n"
-        for i, res in enumerate(results, 1):
-            context += f"{i}. 질문: {res['question']}\n"
-            context += f"   답변: {res['answer']}\n\n"
         return context
     
     def _chain_prompts(self, user_query: str, retrieved_context: str, conversation_context: str) -> str:
@@ -729,58 +701,33 @@ class CachedRAGKnowledgeService:
 # 편의를 위한 alias
 KnowledgeService = CachedRAGKnowledgeService
 
-
 # ==================== 테스트 ====================
 
 def test_cache_system():
-    """캐시 시스템 테스트"""
     print("\n" + "=" * 70)
     print("캐시 시스템 테스트")
     print("=" * 70)
     
-    service = CachedRAGKnowledgeService(
-        csv_path="faq_database_48.csv",
-        enable_conversation=True,
-        enable_cache=True
-    )
-    
-    session_id = "test_001"
+    # 본인의 실제 파일명 확인 필수 
+    csv_file = "faq_database.csv" 
+    if not os.path.exists(csv_file):
+        with open(csv_file, "w", encoding="utf-8") as f:
+            f.write("id,category,question,answer,keywords\nfaq_001,tech_support,인터넷 안됨,공유기를 껐다 켜세요,인터넷")
+
+    service = KnowledgeService(csv_path=csv_file)
+    session_id = "test_user_123"
     query = "인터넷이 안 돼요"
     
-    # 첫 번째 요청 (캐시 미스)
     print("\n[테스트 1] 첫 번째 요청 (캐시 미스)")
-    result1 = service.search_knowledge(query, "tech_support", session_id)
+    res1 = service.search_knowledge(query, "tech_support", session_id)
+    print(f"캐시 사용: {res1['from_cache']} | 답변: {res1['answer'][:50]}...")
     
-    print(f"캐시 사용: {result1.get('from_cache')}")
-    print(f"LLM 사용: {result1.get('used_llm')}")
-    print(f"답변: {result1['answer'][:100]}...")
-    
-    # 긍정 피드백
     print("\n[테스트 2] 긍정 피드백 제출")
-    service.submit_feedback(
-        query=query,
-        category="tech_support",
-        is_helpful=True,
-        feedback_score=5
-    )
+    service.submit_feedback(query, "tech_support", True)
     
-    # 두 번째 요청 (캐시 히트!)
     print("\n[테스트 3] 두 번째 요청 (캐시 히트)")
-    result2 = service.search_knowledge(query, "tech_support", session_id)
-    
-    print(f"캐시 사용: {result2.get('from_cache')}")  # True!
-    print(f"LLM 사용: {result2.get('used_llm')}")    # False!
-    print(f"답변: {result2['answer'][:100]}...")
-    
-    # 캐시 통계
-    print("\n[캐시 통계]")
-    stats = service.get_cache_stats()
-    print(json.dumps(stats, indent=2, ensure_ascii=False))
-    
-    print("\n" + "=" * 70)
-    print("✅ 테스트 완료!")
-    print("=" * 70)
-
+    res2 = service.search_knowledge(query, "tech_support", session_id)
+    print(f"캐시 사용: {res2['from_cache']} | 답변: {res2['answer'][:50]}...")
 
 if __name__ == "__main__":
     test_cache_system()
