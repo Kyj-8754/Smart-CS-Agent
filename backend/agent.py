@@ -3,12 +3,8 @@ import os
 from backend.services.classification import ClassificationService
 from backend.services.knowledge import KnowledgeService
 from backend.services.transaction import TransactionService
-<<<<<<< HEAD
-from backend.services.validation import ValidationAgent
-=======
 from backend.services.validation import ValidationService
 from langchain_openai import ChatOpenAI
->>>>>>> origin/kyj/transaction
 
 class CSAgent:
     def __init__(self):
@@ -61,19 +57,69 @@ class CSAgent:
             # Knowledge RAG (CSV)
             rag_result = self.knowledge.search_knowledge(query, category=category)
             response_data["type"] = "tech_support"
-            response_data["answer"] = answer
+            response_data["answer"] = rag_result.get("answer") or "기술 지원 도와드리겠습니다."
+            response_data["rag_info"] = rag_result
         
-        elif intent == "transaction":
-            # Transaction Processing (returns pending approval)
-            # Mock Logged-in User: user_001 (Kim Cheol-su)
-            transaction_result = self.transaction.process_transaction(intent, entity=query, user_id="user_001") 
-            response_data["type"] = "transaction"
-            response_data["data"] = transaction_result
-            response_data["answer"] = transaction_result.get("message", "처리되었습니다.") # Use message from service
+        elif intent == "BILLING":
+            # 1. Knowledge RAG (CSV FAQ)
+            rag_result = self.knowledge.search_knowledge(query, category=category)
+            response_data["type"] = "billing"
+            response_data["answer"] = rag_result.get("answer") or "청구 지원 도와드리겠습니다."
+            response_data["rag_info"] = rag_result
+
+            # 2. Action Trigger for explicit requests
+            action_keywords = ["신청", "해줘", "해주세오", "해달라", "결제하기", "납부하기", "입금"]
+            if any(k in query for k in action_keywords):
+                # Using user_001 as mock logged-in user
+                transaction_result = self.transaction.process_transaction(intent, entity=query, user_id="user_001")
+                response_data["data"] = transaction_result
+                if transaction_result.get("message"):
+                    response_data["answer"] = transaction_result["message"]
+
+        elif intent == "ORDER":
+            # 1. Knowledge RAG (CSV FAQ)
+            rag_result = self.knowledge.search_knowledge(query, category=category)
+            response_data["type"] = "order"
+            response_data["answer"] = rag_result.get("answer") or "주문 관리 도와드리겠습니다."
+            response_data["rag_info"] = rag_result
+
+            # 2. Action Trigger
+            action_keywords = ["취소", "변경", "수정", "반품", "환불", "조회해줘", "추적"]
+            if any(k in query for k in action_keywords) and not ("안 돼" in query or "안되" in query):
+                transaction_result = self.transaction.process_transaction(intent, entity=query, user_id="user_001")
+                response_data["data"] = transaction_result
+                if transaction_result.get("message"):
+                    response_data["answer"] = transaction_result["message"]
+
+        elif intent == "ACCOUNT_MGMT":
+            # 1. Check for personalized info lookup
+            personalized_answer = None
+            if "아이디" in query or "이름" in query:
+                test_user = next((u for u in self.users_data if u['username'] == 'test'), None)
+                if test_user:
+                    if "아이디" in query:
+                        personalized_answer = f"조회된 계정 정보입니다. 아이디는 '{test_user['username']}'입니다."
+                    elif "이름" in query:
+                        personalized_answer = f"조회된 계정 정보입니다. 이름은 '{test_user['name']}'입니다."
+
+            # 2. Knowledge RAG (CSV FAQ)
+            rag_result = self.knowledge.search_knowledge(query, category=category)
+            response_data["type"] = "account_mgmt"
             
-        elif intent == "chitchat":
-            response_data["type"] = "chitchat"
-            response_data["answer"] = "Hello! How can I help you today?"
+            if personalized_answer:
+                response_data["answer"] = personalized_answer
+            else:
+                response_data["answer"] = rag_result.get("answer") or "계정 관리 도와드리겠습니다."
+                
+            response_data["rag_info"] = rag_result
+
+            # 3. Action Trigger
+            action_keywords = ["탈퇴", "삭제", "수정해줘", "초기화", "변경신청"]
+            if any(k in query for k in action_keywords):
+                transaction_result = self.transaction.process_transaction(intent, entity=query, user_id="user_001")
+                response_data["data"] = transaction_result
+                if transaction_result.get("message"):
+                    response_data["answer"] = transaction_result["message"]
             
         else:
             response_data["type"] = "fallback"
