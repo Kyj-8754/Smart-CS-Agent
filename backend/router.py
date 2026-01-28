@@ -1,12 +1,14 @@
+from typing import List, Dict, Optional, Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from backend.agent import CSAgent
+from agent import CSAgent
 
 router = APIRouter()
 agent = CSAgent()
 
 class ChatRequest(BaseModel):
     query: str
+    conversation_history: Optional[List[Dict[str, Any]]] = []
 
 class TransactionApprovalRequest(BaseModel):
     transaction_id: str
@@ -15,7 +17,7 @@ class TransactionApprovalRequest(BaseModel):
 @router.post("/chat")
 async def chat_endpoint(request: ChatRequest):
     try:
-        response = await agent.process_query(request.query)
+        response = await agent.process_query(request.query, request.conversation_history)
         return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

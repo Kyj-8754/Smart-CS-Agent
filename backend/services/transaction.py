@@ -71,6 +71,13 @@ class TransactionService:
         사용자의 의도(Intent)와 엔티티(Entity)를 받아 트랜잭션을 처리합니다.
         user_id가 제공되면 해당 유저의 맥락을 고려합니다.
         """
+        # Intent가 포괄적인 'transaction'일 경우, entity(Query) 내용을 기반으로 세부 의도 파악
+        if intent == "transaction" and entity:
+            if any(k in entity for k in ["취소", "cancel"]):
+                intent = "cancel"
+            elif any(k in entity for k in ["조회", "배송", "어디", "status", "tracking"]):
+                intent = "status_check"
+
         # 최신 데이터 로드
         self._load_data()
         

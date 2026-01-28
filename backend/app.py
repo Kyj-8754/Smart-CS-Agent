@@ -1,13 +1,12 @@
 from fastapi import FastAPI
+from router import router
 from fastapi.middleware.cors import CORSMiddleware
-from backend.router import router
 
 app = FastAPI(title="Smart CS Agent API")
 
-# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for dev
+    allow_origins=["*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

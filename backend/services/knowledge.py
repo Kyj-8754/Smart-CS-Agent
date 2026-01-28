@@ -393,8 +393,8 @@ class CachedRAGKnowledgeService:
     """
     
     def __init__(self, 
-                 csv_path: str = "backend/data/faq_database.csv",
-                 cache_file: str = "backend/data/answer_cache.json",
+                 csv_path: str = "data/faq_database.csv",
+                 cache_file: str = "data/answer_cache.json",
                  model_name: str = "jhgan/ko-sroberta-multitask",
                  enable_conversation: bool = True,
                  enable_cache: bool = True,
