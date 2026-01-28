@@ -35,11 +35,18 @@ class AnswerCache:
     3. 캐시 히트 시 즉시 반환 (LLM 호출 없음)
     """
     
-    def __init__(self, cache_file: str = "data/answer_cache.json"):
-        self.cache_file = Path(cache_file)
+    def __init__(self, cache_file: str = "backend/data/answer_cache.json"):
+        # 절대 경로로 변환하여 파일 찾기 보장
+        base_dir = Path(__file__).parent.parent
+        self.cache_file = base_dir / "data" / "answer_cache.json"
+        
+        # 만약 위 경로에 없다면 전달받은 경로 시도
+        if not self.cache_file.parent.exists():
+            self.cache_file = Path(os.getcwd()) / cache_file
+            
         self.cache = self._load_cache()
         self.embeddings_cache = {}  # 빠른 검색을 위한 임베딩 캐시
-        logger.info(f"  ✅ 답변 캐시 초기화 ({len(self.cache)}개 저장됨)")
+        logger.info(f"  ✅ 답변 캐시 초기화 ({len(self.cache)}개 저장됨) - Path: {self.cache_file}")
     
     def _load_cache(self) -> Dict:
         """캐시 파일 로드"""
@@ -393,8 +400,8 @@ class CachedRAGKnowledgeService:
     """
     
     def __init__(self, 
-                 csv_path: str = "data/faq_database.csv",
-                 cache_file: str = "data/answer_cache.json",
+                 csv_path: str = "backend/data/faq_database.csv",
+                 cache_file: str = "backend/data/answer_cache.json",
                  model_name: str = "jhgan/ko-sroberta-multitask",
                  enable_conversation: bool = True,
                  enable_cache: bool = True,
@@ -436,10 +443,23 @@ class CachedRAGKnowledgeService:
     
     def _load_csv(self, csv_path) -> pd.DataFrame:
         """CSV 로드"""
-        csv_file = Path(csv_path)
+        # 경로 탐색 순서: 1. 절대 경로, 2. 프로젝트 루트 기준, 3. backend 기준
+        base_dir = Path(__file__).parent.parent
+        search_paths = [
+            Path(csv_path),
+            base_dir / "data" / "faq_database.csv",
+            Path(os.getcwd()) / "backend" / "data" / "faq_database.csv",
+            Path(os.getcwd()) / "data" / "faq_database.csv"
+        ]
         
-        if not csv_file.exists():
-            raise FileNotFoundError(f"FAQ 파일 없음: {csv_path}")
+        csv_file = None
+        for path in search_paths:
+            if path.exists():
+                csv_file = path
+                break
+        
+        if not csv_file:
+            raise FileNotFoundError(f"FAQ 파일 없음: {csv_path} (검색 경로: {[str(p) for p in search_paths]})")
         
         df = pd.read_csv(csv_file, encoding='utf-8')
         logger.info(f"  ✅ CSV 로드: {len(df)}개 FAQ")
@@ -457,9 +477,11 @@ class CachedRAGKnowledgeService:
         
         texts = []
         for idx, row in self.faq_df.iterrows():
-            text = row['question']
+            # 문자열이 아닌 경우(NaN 등)를 위한 처리
+            question = str(row['question']) if pd.notna(row['question']) else ""
+            text = question
             if 'keywords' in self.faq_df.columns and pd.notna(row['keywords']):
-                text += " " + row['keywords'].replace(',', ' ')
+                text += " " + str(row['keywords']).replace(',', ' ')
             texts.append(text)
         
         embeddings = self.model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
