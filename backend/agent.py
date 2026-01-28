@@ -5,13 +5,13 @@ CS Agent 메인 로직 - 다이어그램 아키텍처 반영
 3. Validation (최종 출력 검증 가드레일)
 """
 
-from .services.classification import ClassificationService
-from .services.knowledge import KnowledgeService
-from .services.transaction import TransactionService
-from .services.validation import ValidationAgent
+from services.classification import ClassificationService
+from services.knowledge import KnowledgeService
+from services.transaction import TransactionService
+from services.validation import ValidationAgent
 from langchain_openai import ChatOpenAI
 from langchain.schema import HumanMessage, SystemMessage
-from . import settings
+import settings
 
 class CSAgent:
     def __init__(self):
