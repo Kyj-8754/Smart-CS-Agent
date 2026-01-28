@@ -10,6 +10,7 @@ TODO: conversation_history 구현
 """
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 from backend.services.classification import ClassificationService
 from backend.services.knowledge import KnowledgeService
 from backend.services.transaction import TransactionService
@@ -21,6 +22,8 @@ from langchain_openai import ChatOpenAI
 >>>>>>> origin/kyj/transaction
 <<<<<<< HEAD
 =======
+=======
+>>>>>>> main
 from services.classification import ClassificationService
 from services.knowledge import KnowledgeService
 from services.transaction import TransactionService
@@ -28,6 +31,7 @@ from services.validation import ValidationAgent
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 import settings
+<<<<<<< HEAD
 >>>>>>> origin/kyj/transaction
 =======
 import json
@@ -39,6 +43,8 @@ from backend.services.validation import ValidationService
 >>>>>>> origin/feat/ohs-rag
 =======
 >>>>>>> origin/feat/ohs-rag
+=======
+>>>>>>> main
 
 class CSAgent:
     def __init__(self):
