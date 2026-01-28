@@ -314,7 +314,7 @@ if __name__ == "__main__":
     ]
     
     try:
-        validator = ValidationService()
+        validator = ValidationAgent()
         print("=== Solar Pro 3 검증 에이전트 테스트 ===\n")
         
         for i, test in enumerate(test_cases, 1):
