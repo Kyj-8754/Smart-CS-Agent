@@ -1,0 +1,8 @@
+order_id,item,status,customer_name,customer_id
+ORD-001,노트북,배송중,김철수,user_001
+ORD-002,무선 마우스,상품준비중,이영희,user_002
+ORD-003,모니터,배송완료,박민수,user_003
+ORD-004,키보드,주문취소,최수진,user_004
+ORD-005,태블릿,배송중,김철수,user_001
+ORD-006,스마트폰,배송완료,김철수,user_001
+ORD-007,충전기,주문취소,김철수,user_001

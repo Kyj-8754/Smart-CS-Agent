@@ -11,7 +11,12 @@ TODO: conversation_history 구현
 from backend.services.classification import ClassificationService
 from backend.services.knowledge import KnowledgeService
 from backend.services.transaction import TransactionService
+<<<<<<< HEAD
 from backend.services.validation import ValidationAgent
+=======
+from backend.services.validation import ValidationService
+from langchain_openai import ChatOpenAI
+>>>>>>> origin/kyj/transaction
 
 class CSAgent:
     def __init__(self):
@@ -40,10 +45,11 @@ class CSAgent:
         
         elif intent == "transaction":
             # Transaction Processing (returns pending approval)
-            transaction_result = self.transaction.process_transaction(intent, entity=query) # Simplistic entity extraction
+            # Mock Logged-in User: user_001 (Kim Cheol-su)
+            transaction_result = self.transaction.process_transaction(intent, entity=query, user_id="user_001") 
             response_data["type"] = "transaction"
             response_data["data"] = transaction_result
-            response_data["answer"] = "I have prepared the transaction. Please review and approve."
+            response_data["answer"] = transaction_result.get("message", "처리되었습니다.") # Use message from service
             
         elif intent == "chitchat":
             response_data["type"] = "chitchat"
