@@ -11,6 +11,9 @@ class TransactionService:
         self.csv_file_path = os.path.join(base_dir, 'data', 'orders.csv')
         
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> origin/feat/ohs-rag
         self.orders = {}
         self.pending_transactions = {} # 트랜잭션 임시 저장소 (캐시)
         self.user_sessions = {} # 유저별 세션 (last_viewed 등)
@@ -21,6 +24,7 @@ class TransactionService:
         if not os.path.exists(self.csv_file_path):
             print(f"File not found: {self.csv_file_path}")
             return
+<<<<<<< HEAD
 =======
         # Mock logic based on keywords or intent
         intent_lower = intent.upper()
@@ -47,6 +51,8 @@ class TransactionService:
             "status": "pending_approval",
             "timestamp": datetime.now().isoformat()
         }
+>>>>>>> origin/feat/ohs-rag
+=======
 >>>>>>> origin/feat/ohs-rag
         
         with open(self.csv_file_path, mode='r', encoding='utf-8') as f:
@@ -211,6 +217,9 @@ class TransactionService:
         사용자가 확답(승인)을 했을 때 호출되어 실제 데이터 수정을 수행합니다.
         """
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> origin/feat/ohs-rag
         if transaction_id not in self.pending_transactions:
             return {"status": "error", "message": "유효하지 않거나 만료된 트랜잭션 ID입니다."}
             
@@ -241,7 +250,10 @@ class TransactionService:
                 }
         
         return {"status": "error", "message": "트랜잭션 실행 실패"}
+<<<<<<< HEAD
 =======
         # Logic to commit change to DB
         return {"status": "success", "transaction_id": transaction_id, "message": "요청하신 내역이 정상적으로 처리되었습니다. 이용해 주셔서 감사합니다."}
+>>>>>>> origin/feat/ohs-rag
+=======
 >>>>>>> origin/feat/ohs-rag

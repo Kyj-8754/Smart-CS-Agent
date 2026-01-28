@@ -19,6 +19,7 @@ from backend.services.validation import ValidationAgent
 from backend.services.validation import ValidationService
 from langchain_openai import ChatOpenAI
 >>>>>>> origin/kyj/transaction
+<<<<<<< HEAD
 =======
 from services.classification import ClassificationService
 from services.knowledge import KnowledgeService
@@ -35,6 +36,8 @@ from backend.services.classification import ClassificationService
 from backend.services.knowledge import KnowledgeService
 from backend.services.transaction import TransactionService
 from backend.services.validation import ValidationService
+>>>>>>> origin/feat/ohs-rag
+=======
 >>>>>>> origin/feat/ohs-rag
 
 class CSAgent:
@@ -137,84 +140,22 @@ class CSAgent:
             # Knowledge RAG (CSV)
             rag_result = self.knowledge.search_knowledge(query, category=category)
             response_data["type"] = "tech_support"
-            
-            # Handle Ambiguity/Clarification
-            if rag_result.get("needs_clarification"):
-                response_data["answer"] = rag_result.get("clarification_question")
-            else:
-                response_data["answer"] = rag_result.get("answer") or "기술 지원 도와드리겠습니다."
-            
-            response_data["rag_info"] = rag_result
+<<<<<<< HEAD
+=======
+            response_data["answer"] = answer
         
-        elif intent == "BILLING":
-            # 1. Knowledge RAG (CSV FAQ)
-            rag_result = self.knowledge.search_knowledge(query, category=category)
-            response_data["type"] = "billing"
+        elif intent == "transaction":
+            # Transaction Processing (returns pending approval)
+            # Mock Logged-in User: user_001 (Kim Cheol-su)
+            transaction_result = self.transaction.process_transaction(intent, entity=query, user_id="user_001") 
+            response_data["type"] = "transaction"
+            response_data["data"] = transaction_result
+            response_data["answer"] = transaction_result.get("message", "처리되었습니다.") # Use message from service
+>>>>>>> origin/feat/ohs-rag
             
-            # Handle Ambiguity/Clarification
-            if rag_result.get("needs_clarification"):
-                response_data["answer"] = rag_result.get("clarification_question")
-            else:
-                response_data["answer"] = rag_result.get("answer") or "청구 지원 도와드리겠습니다."
-            
-            response_data["rag_info"] = rag_result
-
-            # 2. Stricter Action Trigger: Only for explicit requests
-            action_keywords = ["신청", "해줘", "해주세오", "해달라", "결제하기", "납부하기", "입금"]
-            if any(k in query for k in action_keywords):
-                transaction_result = self.transaction.process_transaction(intent, entity=query)
-                response_data["data"] = transaction_result
-
-        elif intent == "ORDER":
-            # 1. Knowledge RAG (CSV FAQ)
-            rag_result = self.knowledge.search_knowledge(query, category=category)
-            response_data["type"] = "order"
-            
-            # Handle Ambiguity/Clarification
-            if rag_result.get("needs_clarification"):
-                response_data["answer"] = rag_result.get("clarification_question")
-            else:
-                response_data["answer"] = rag_result.get("answer") or "주문 관리 도와드리겠습니다."
-                
-            response_data["rag_info"] = rag_result
-
-            # 2. Stricter Action Trigger
-            action_keywords = ["취소", "변경", "수정", "반품", "환불", "조회해줘", "추적"]
-            # Avoid triggering if it's a general complaint like "안 돼요"
-            if any(k in query for k in action_keywords) and not ("안 돼" in query or "안되" in query):
-                transaction_result = self.transaction.process_transaction(intent, entity=query)
-                response_data["data"] = transaction_result
-
-        elif intent == "ACCOUNT_MGMT":
-            # 1. Check for personalized info lookup
-            personalized_answer = None
-            if "아이디" in query or "이름" in query:
-                test_user = next((u for u in self.users_data if u['username'] == 'test'), None)
-                if test_user:
-                    if "아이디" in query:
-                        personalized_answer = f"조회된 계정 정보입니다. 아이디는 '{test_user['username']}'입니다."
-                    elif "이름" in query:
-                        personalized_answer = f"조회된 계정 정보입니다. 이름은 '{test_user['name']}'입니다."
-
-            # 2. Knowledge RAG (CSV FAQ)
-            rag_result = self.knowledge.search_knowledge(query, category=category)
-            response_data["type"] = "account_mgmt"
-            
-            # Handle Ambiguity/Clarification
-            if personalized_answer:
-                response_data["answer"] = personalized_answer
-            elif rag_result.get("needs_clarification"):
-                response_data["answer"] = rag_result.get("clarification_question")
-            else:
-                response_data["answer"] = rag_result.get("answer") or "계정 관리 도와드리겠습니다."
-                
-            response_data["rag_info"] = rag_result
-
-            # 3. Stricter Action Trigger
-            action_keywords = ["탈퇴", "삭제", "수정해줘", "초기화", "변경신청"]
-            if any(k in query for k in action_keywords):
-                transaction_result = self.transaction.process_transaction(intent, entity=query)
-                response_data["data"] = transaction_result
+        elif intent == "chitchat":
+            response_data["type"] = "chitchat"
+            response_data["answer"] = "Hello! How can I help you today?"
             
         else:
             response_data["type"] = "fallback"

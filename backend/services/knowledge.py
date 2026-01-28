@@ -143,7 +143,31 @@ class LLMAgent:
 # ==================== RAG + 캐시 지식 서비스 ====================
 
 class CachedRAGKnowledgeService:
+<<<<<<< HEAD
     def __init__(self, csv_path: str, cache_file: str = "data/answer_cache.json", enable_cache: bool = True):
+=======
+    """
+    캐시 시스템이 추가된 RAG
+    
+    워크플로우:
+    1. 캐시 확인 → 있으면 즉시 반환 (LLM 호출 없음)
+    2. 없으면 RAG 프로세스 실행
+    3. 답변 생성 후 캐시에 저장 (pending 상태)
+    4. 사용자 피드백 받으면 캐시 업데이트
+    """
+    
+    def __init__(self, 
+                 csv_path: str = "backend/data/faq_database_48.csv",
+                 model_name: str = "jhgan/ko-sroberta-multitask",
+                 enable_conversation: bool = True,
+                 enable_cache: bool = True,
+                 api_key: str = None):
+        
+        logger.info("=" * 60)
+        logger.info("B파트: 캐시 + RAG 시스템 초기화")
+        logger.info("=" * 60)
+        
+>>>>>>> origin/feat/ohs-rag
         self.enable_cache = enable_cache
         self.cache = AnswerCache(cache_file) if enable_cache else None
         self.conversation = ConversationManager()
@@ -161,6 +185,7 @@ class CachedRAGKnowledgeService:
         return index
 
     def _search_faq(self, query: str, category: str = None, top_k: int = 3) -> List[Dict]:
+<<<<<<< HEAD
         query_emb = self.model.encode([query], convert_to_numpy=True)
         faiss.normalize_L2(query_emb)
         scores, indices = self.index.search(query_emb, min(top_k * 2, len(self.faq_df)))
@@ -172,6 +197,97 @@ class CachedRAGKnowledgeService:
             results.append({'faq_id': row['id'], 'question': row['question'], 'answer': row['answer'], 'similarity_score': float(score)})
             if len(results) >= top_k: break
         return results
+=======
+        """FAQ 검색 (키워드 부스팅 포함)"""
+        if self.index is None:
+            return []
+        
+        try:
+            query_embedding = self.model.encode([query], convert_to_numpy=True)
+            faiss.normalize_L2(query_embedding)
+            
+            scores, indices = self.index.search(query_embedding, min(top_k * 2, len(self.faq_df)))
+            
+            results = []
+            for score, idx in zip(scores[0], indices[0]):
+                if score < 0.2:
+                    continue
+                
+                faq_row = self.faq_df.iloc[idx]
+                
+                if category and faq_row['category'] != category:
+                    continue
+                
+                final_score = float(score)
+                
+                # 키워드 부스팅 (단어가 포함되어 있으면 점수 보정)
+                if 'keywords' in self.faq_df.columns and pd.notna(faq_row['keywords']):
+                    keywords = [k.strip() for k in faq_row['keywords'].split(',')]
+                    for kw in keywords:
+                        if kw in query:
+                            final_score += 0.1  # 키워드 일치 시 부스팅
+                            break
+                
+                results.append({
+                    'faq_id': faq_row['id'],
+                    'category': faq_row['category'],
+                    'question': faq_row['question'],
+                    'answer': faq_row['answer'],
+                    'similarity_score': min(final_score, 1.0)
+                })
+                
+                if len(results) >= top_k:
+                    break
+            
+            # 부스팅된 점수로 재정렬
+            results.sort(key=lambda x: x['similarity_score'], reverse=True)
+            return results
+            
+        except Exception as e:
+            logger.error(f"FAQ 검색 실패: {e}")
+            return []
+    
+    def _generate_ai_answer(self, query: str, faq_results: List[Dict]) -> str:
+        """AI 답변 생성"""
+        if not self.ai_client:
+            return "AI 답변 생성 불가"
+        
+        context = "[검색된 관련 FAQ]\n\n"
+        
+        for i, faq in enumerate(results, 1):
+            context += f"FAQ {i} (유사도: {faq['similarity_score']:.2f}):\n"
+            context += f"질문: {faq['question']}\n"
+            context += f"답변: {faq['answer']}\n\n"
+        
+        return context
+    
+    def _chain_prompts(self, user_query: str, retrieved_context: str, conversation_context: str) -> str:
+        """프롬프트 체인"""
+        prompt = ""
+        
+        if retrieved_context:
+            prompt += retrieved_context
+            prompt += "---\n\n"
+        
+        if conversation_context:
+            prompt += conversation_context
+            prompt += "---\n\n"
+        
+        prompt += f"[고객 질문]\n{user_query}\n\n"
+        prompt += "[지시사항]\n"
+        prompt += "위의 FAQ와 대화 맥락을 참고하여 답변해주세요.\n"
+        
+        return prompt
+    
+    def _extract_first_action(self, answer: str) -> Optional[str]:
+        """첫 번째 조치 추출"""
+        match = re.search(r'1\.\s*([^\n]+)', answer)
+        if match:
+            action = match.group(1).strip()
+            action = re.sub(r'\([^)]*\)', '', action).strip()
+            return action[:50]
+        return None
+>>>>>>> origin/feat/ohs-rag
 
     def search_knowledge(self, query: str, category: str = None, session_id: str = None) -> Dict:
         if self.enable_cache:
