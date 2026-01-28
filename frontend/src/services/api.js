@@ -18,7 +18,7 @@ const AGENT_RESPONSES = {
       }
     })
   },
-  
+
   refund: {
     keywords: ['환불', '취소', '반품'],
     response: (query) => ({
@@ -40,7 +40,7 @@ const AGENT_RESPONSES = {
       }
     })
   },
-  
+
   order: {
     keywords: ['주문', '배송', '조회', 'tracking', '언제'],
     response: (query) => ({
@@ -68,7 +68,7 @@ const AGENT_RESPONSES = {
       }
     })
   },
-  
+
   account: {
     keywords: ['계정', '회원', '비밀번호', '탈퇴', '정보수정'],
     response: (query) => ({
@@ -98,6 +98,7 @@ const AGENT_RESPONSES = {
   }
 };
 
+/*
 // Mock 응답 생성 함수
 export const sendMessage = async (query, conversationHistory = []) => {
   await new Promise(resolve => setTimeout(resolve, 1000));
@@ -132,9 +133,9 @@ export const approveTransaction = async (transactionId, approved) => {
       : '요청이 취소되었습니다.'
   };
 };
+*/
 
 // ==================== 실제 API 연결 (백엔드 준비 시) ====================
-/*
 import axios from 'axios';
 
 const API_BASE_URL = 'http://localhost:8000';
@@ -148,11 +149,28 @@ const api = axios.create({
 
 export const sendMessage = async (query, conversationHistory = []) => {
   try {
-    const response = await api.post('/chat', { 
+    const response = await api.post('/chat', {
       query,
-      conversation_history: conversationHistory 
+      conversation_history: conversationHistory
     });
-    return response.data;
+
+    // 백엔드 응답 형식을 프론트엔드 기대 형식에 맞춥니다.
+    const data = response.data;
+    return {
+      message: data.answer,
+      requires_approval: data.data && data.data.status === 'pending_approval',
+      transaction_id: data.data ? data.data.transaction_id : null,
+      approval_message: data.data ? `[${data.data.action_type}]를 승인하시겠습니까?` : null,
+      transaction_data: data.data ? {
+        "항목": data.data.target_entity,
+        "상태": data.data.status,
+        "요청": data.data.action_type
+      } : null,
+      metadata: {
+        agent_type: data.type,
+        confidence: data.classification_details ? data.classification_details.confidence : 1.0
+      }
+    };
   } catch (error) {
     console.error('Chat API Error:', error);
     throw error;
@@ -173,4 +191,3 @@ export const approveTransaction = async (transactionId, approved) => {
 };
 
 export default api;
-*/
