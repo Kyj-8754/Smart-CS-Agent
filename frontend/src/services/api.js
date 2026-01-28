@@ -1,5 +1,3 @@
-<<<<<<< HEAD
-=======
 /* 
  * API 통신 서비스
  * Mock 모드: 백엔드 없이 4개 에이전트 테스트 가능
@@ -138,7 +136,6 @@ export const approveTransaction = async (transactionId, approved) => {
 */
 
 // ==================== 실제 API 연결 (백엔드 준비 시) ====================
->>>>>>> origin/feat/ohs-rag
 import axios from 'axios';
 
 const API_BASE_URL = 'http://localhost:8000';
@@ -194,7 +191,3 @@ export const approveTransaction = async (transactionId, approved) => {
 };
 
 export default api;
-<<<<<<< HEAD
-
-=======
->>>>>>> origin/feat/ohs-rag

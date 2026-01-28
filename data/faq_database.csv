@@ -1,0 +1,4 @@
+id,category,question,answer,keywords
+faq_001,tech_support,로그인이 안 돼요,"비밀번호를 재설정하세요",로그인,비밀번호
+faq_002,tech_support,인터넷이 안 돼요,"라우터를 재부팅하세요",인터넷,연결
+faq_003,billing_support,청구서 확인,"마이페이지에서 확인하세요",청구,요금

@@ -18,12 +18,15 @@ import re
 import time
 import json
 import hashlib
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-# ==================== 캐시 관리자 (NEW!) ====================
+# ==================== 캐시 관리자 ====================
 
 class AnswerCache:
     """
@@ -38,7 +41,7 @@ class AnswerCache:
     def __init__(self, cache_file: str = "data/answer_cache.json"):
         self.cache_file = Path(cache_file)
         self.cache = self._load_cache()
-        self.embeddings_cache = {}  # 빠른 검색을 위한 임베딩 캐시
+        self.embeddings_cache = {}
         logger.info(f"  ✅ 답변 캐시 초기화 ({len(self.cache)}개 저장됨)")
     
     def _load_cache(self) -> Dict:
@@ -62,61 +65,28 @@ class AnswerCache:
             logger.error(f"캐시 저장 실패: {e}")
     
     def _get_query_hash(self, query: str, category: str = None) -> str:
-        """질문의 해시값 생성"""
-        key = f"{category}:{query}" if category else query
+    # 양끝 공백 제거 및 소문자화하여 일관성 유지
+        clean_query = query.strip().lower().replace(" ", "")
+        key = f"{category}:{clean_query}" if category else clean_query
         return hashlib.md5(key.encode()).hexdigest()
     
     def get(self, query: str, category: str = None, similarity_threshold: float = 0.95) -> Optional[Dict]:
-        """
-        캐시에서 답변 조회
-        
-        Args:
-            query: 질문
-            category: 카테고리
-            similarity_threshold: 유사도 임계값 (기본 0.95 - 매우 유사해야 캐시 사용)
-        
-        Returns:
-            캐시된 답변 또는 None
-        """
-        # 정확히 같은 질문 찾기
+        """캐시에서 답변 조회"""
         query_hash = self._get_query_hash(query, category)
         
         if query_hash in self.cache:
             cached_item = self.cache[query_hash]
             
-            # 승인된 답변만 반환
             if cached_item.get('verified', False):
                 logger.info(f"  💾 캐시 히트! (정확한 매칭)")
                 cached_item['cache_hit'] = True
                 cached_item['cache_type'] = 'exact'
                 return cached_item
         
-        # 유사한 질문 찾기 (임베딩 기반)
-        # TODO: 임베딩 기반 유사 질문 검색 (선택 사항)
-        
         return None
     
-    def add(self, 
-            query: str, 
-            answer: str, 
-            category: str = None,
-            verified: bool = False,
-            feedback_score: int = 0,
-            metadata: Dict = None) -> str:
-        """
-        캐시에 답변 추가
-        
-        Args:
-            query: 질문
-            answer: 답변
-            category: 카테고리
-            verified: 사용자가 승인했는지
-            feedback_score: 피드백 점수 (1-5)
-            metadata: 추가 메타데이터
-        
-        Returns:
-            캐시 키
-        """
+    def add(self, query: str, answer: str, category: str = None, verified: bool = False, feedback_score: int = 0, metadata: Dict = None) -> str:
+        """캐시에 답변 추가"""
         query_hash = self._get_query_hash(query, category)
         
         self.cache[query_hash] = {
@@ -136,14 +106,7 @@ class AnswerCache:
         return query_hash
     
     def verify(self, query: str, category: str = None, feedback_score: int = 5):
-        """
-        사용자가 답변을 승인
-        
-        Args:
-            query: 질문
-            category: 카테고리
-            feedback_score: 피드백 점수 (1-5)
-        """
+        """사용자가 답변을 승인"""
         query_hash = self._get_query_hash(query, category)
         
         if query_hash in self.cache:
@@ -157,18 +120,10 @@ class AnswerCache:
             logger.warning(f"  ⚠️  캐시에 없는 질문: {query[:30]}...")
     
     def reject(self, query: str, category: str = None, reason: str = None):
-        """
-        사용자가 답변을 거부
-        
-        Args:
-            query: 질문
-            category: 카테고리
-            reason: 거부 이유
-        """
+        """사용자가 답변을 거부"""
         query_hash = self._get_query_hash(query, category)
         
         if query_hash in self.cache:
-            # 거부된 답변은 캐시에서 제거 또는 마킹
             self.cache[query_hash]['verified'] = False
             self.cache[query_hash]['rejected'] = True
             self.cache[query_hash]['rejected_at'] = datetime.now().isoformat()
@@ -213,9 +168,7 @@ class ConversationManager:
     def __init__(self):
         self.sessions = {}
     
-    def add_turn(self, session_id: str, user_query: str, bot_response: str, 
-                 suggested_action: str = None, faq_ids: List[str] = None,
-                 from_cache: bool = False):
+    def add_turn(self, session_id: str, user_query: str, bot_response: str, suggested_action: str = None, faq_ids: List[str] = None, from_cache: bool = False):
         """대화 턴 추가"""
         if session_id not in self.sessions:
             self.sessions[session_id] = {
@@ -232,7 +185,7 @@ class ConversationManager:
             'bot_response': bot_response,
             'suggested_action': suggested_action,
             'faq_ids': faq_ids or [],
-            'from_cache': from_cache  # 캐시에서 온 답변인지
+            'from_cache': from_cache
         })
         
         if suggested_action:
@@ -325,11 +278,7 @@ class LLMAgent:
             except Exception as e:
                 logger.error(f"  ❌ LLM Agent 초기화 실패: {e}")
     
-    def generate_with_retry(self, 
-                           prompt: str, 
-                           system_prompt: str = None,
-                           temperature: float = 0.7,
-                           max_tokens: int = 500) -> str:
+    def generate_with_retry(self, prompt: str, system_prompt: str = None, temperature: float = 0.7, max_tokens: int = 500) -> str:
         """재시도 로직이 있는 LLM 호출"""
         if not self.client:
             raise Exception("OpenAI 클라이언트가 초기화되지 않았습니다")
@@ -405,30 +354,26 @@ class CachedRAGKnowledgeService:
         logger.info("=" * 60)
         
         self.enable_cache = enable_cache
+        self.enable_conversation = enable_conversation
         
-        # 캐시 (NEW!)
         if enable_cache:
             self.cache = AnswerCache(cache_file)
         else:
             self.cache = None
         
-        # 대화 맥락
         if enable_conversation:
             self.conversation = ConversationManager()
             logger.info("  ✅ 대화 맥락 관리 활성화")
         else:
             self.conversation = None
         
-        # LLM Agent
         self.llm_agent = LLMAgent(api_key=api_key, max_retries=3)
         
-        # 임베딩 모델
         logger.info(f"임베딩 모델 로드: {model_name}")
         self.model = SentenceTransformer(model_name)
         self.dimension = self.model.get_sentence_embedding_dimension()
         logger.info(f"  ✅ 임베딩 차원: {self.dimension}")
         
-        # FAQ 데이터
         self.faq_df = self._load_csv(csv_path)
         self.index = self._build_index()
         
@@ -471,141 +416,60 @@ class CachedRAGKnowledgeService:
         logger.info(f"  ✅ FAISS 인덱스: {index.ntotal}개 벡터")
         return index
     
-    def search_knowledge(self, 
-                        query: str, 
-                        category: str = None,
-                        session_id: str = None) -> Dict:
-        """
-        캐시 + RAG 기반 지식 검색
-        
-        프로세스:
-        1. 캐시 확인 → 있으면 즉시 반환
-        2. 없으면 RAG 실행
-        3. 답변을 캐시에 저장 (pending)
-        """
+    # ✅ agent.py 호환용 - str 반환
+    def search_knowledge(self, query: str, category: str = None, session_id: str = None) -> str:
+        result = self._search_knowledge_internal(query, category, session_id)
+        return result.get('answer', '죄송합니다. 현재 답변을 생성할 수 없습니다.')
+
+    # ✅ 실제 RAG 로직 - Dict 반환
+    def _search_knowledge_internal(self, query: str, category: str = None, session_id: str = None) -> Dict:
         original_query = query
         
-        logger.info(f"\n{'='*60}")
-        logger.info(f"검색 시작: '{query}'")
-        logger.info(f"{'='*60}")
-        
-        # Step 0: 캐시 확인 (NEW!)
+        # 1. 캐시 확인
         if self.enable_cache and self.cache:
             cached_answer = self.cache.get(query, category)
-            
             if cached_answer:
-                # 캐시 히트! LLM 호출 없이 즉시 반환
                 self.cache.increment_hit_count(query, category)
-                
-                logger.info("  💾 캐시에서 답변 반환 (LLM 호출 없음)")
-                
-                # 대화 기록
-                if self.conversation and session_id:
-                    self.conversation.add_turn(
-                        session_id=session_id,
-                        user_query=original_query,
-                        bot_response=cached_answer['answer'],
-                        from_cache=True
-                    )
-                
-                return {
-                    "answer": cached_answer['answer'],
-                    "confidence": 1.0,  # 캐시된 답변은 검증됨
-                    "from_cache": True,
-                    "cache_verified": cached_answer.get('verified', False),
-                    "cache_hit_count": cached_answer.get('hit_count', 0),
-                    "used_llm": False  # LLM 호출 안 함!
-                }
-        
-        # Step 1: 대화 맥락 해결
+                return {"answer": cached_answer['answer'], "from_cache": True, "used_llm": False}
+
+        # 2. 대화 맥락 해결
         if self.conversation and session_id:
-            resolved_query = self.conversation.resolve_references(session_id, query)
-            if resolved_query != query:
-                query = resolved_query
-        
-        # Step 2-4: RAG 프로세스 (기존과 동일)
+            query = self.conversation.resolve_references(session_id, query)
+
+        # 3. FAQ 검색
         results = self._search_faq(query, category, top_k=3)
         
+        # 🌟 핵심 수정: 검색 결과가 없어도 LLM 호출용 컨텍스트 구성
         if not results:
-            return {
-                "answer": "관련 정보를 찾을 수 없습니다.",
-                "confidence": 0.0
-            }
-        
-        best_score = results[0]['similarity_score']
-        
-        # 프롬프트 구성
-        retrieved_context = self._build_retrieved_context(results)
-        conversation_context = ""
-        if self.conversation and session_id:
-            conversation_context = self.conversation.build_context_prompt(session_id)
-        
-        final_prompt = self._chain_prompts(query, retrieved_context, conversation_context)
-        
-        # LLM 호출
+            logger.warning("⚠️ 검색 결과가 없습니다. 일반 지식으로 답변합니다.")
+            retrieved_context = "시스템 DB에 직접적인 FAQ는 없지만, 일반적인 쇼핑몰 고객지원 지식을 바탕으로 친절하게 답변해주세요."
+            best_score = 0.0
+        else:
+            retrieved_context = self._build_retrieved_context(results)
+            best_score = results[0]['similarity_score']
+
+        # 4. 프롬프트 생성 및 LLM 호출
+        conv_context = self.conversation.build_context_prompt(session_id) if session_id else ""
+        final_prompt = self._chain_prompts(query, retrieved_context, conv_context)
+
         try:
-            logger.info("[Generation] LLM 답변 생성")
             answer = self.llm_agent.generate_with_retry(prompt=final_prompt)
             
-            # Step 5: 캐시에 저장 (pending 상태) (NEW!)
+            # 캐시 저장
             if self.enable_cache and self.cache:
-                self.cache.add(
-                    query=original_query,
-                    answer=answer,
-                    category=category,
-                    verified=False,  # 아직 검증 안 됨
-                    metadata={
-                        'faq_ids': [r['faq_id'] for r in results],
-                        'confidence': best_score
-                    }
-                )
+                self.cache.add(query=original_query, answer=answer, category=category)
             
             # 대화 기록
-            suggested_action = self._extract_first_action(answer)
             if self.conversation and session_id:
-                self.conversation.add_turn(
-                    session_id=session_id,
-                    user_query=original_query,
-                    bot_response=answer,
-                    suggested_action=suggested_action,
-                    faq_ids=[r['faq_id'] for r in results],
-                    from_cache=False
-                )
+                action = self._extract_first_action(answer)
+                self.conversation.add_turn(session_id, original_query, answer, action, from_cache=False)
             
-            return {
-                "answer": answer,
-                "confidence": best_score,
-                "from_cache": False,
-                "used_llm": True,
-                "matched_faq_ids": [r['faq_id'] for r in results],
-                "context_used": original_query != query,
-                "pending_verification": True  # 사용자 피드백 대기 중
-            }
-            
+            return {"answer": answer, "confidence": best_score, "from_cache": False, "used_llm": True}
         except Exception as e:
-            logger.error(f"❌ LLM 생성 실패: {e}")
-            return {
-                "answer": results[0]['answer'],
-                "confidence": best_score,
-                "error": str(e)
-            }
+            return {"answer": "죄송합니다. 답변 생성 중 오류가 발생했습니다.", "confidence": 0.0}
     
-    def submit_feedback(self, 
-                       query: str, 
-                       category: str = None,
-                       is_helpful: bool = True,
-                       feedback_score: int = 5,
-                       reason: str = None):
-        """
-        사용자 피드백 제출 (NEW!)
-        
-        Args:
-            query: 질문
-            category: 카테고리
-            is_helpful: 답변이 도움이 되었는지
-            feedback_score: 점수 (1-5)
-            reason: 거부 이유 (is_helpful=False일 때)
-        """
+    def submit_feedback(self, query: str, category: str = None, is_helpful: bool = True, feedback_score: int = 5, reason: str = None):
+        """사용자 피드백 제출"""
         if not self.enable_cache or not self.cache:
             logger.warning("캐시가 비활성화되어 있습니다")
             return
@@ -618,7 +482,7 @@ class CachedRAGKnowledgeService:
             logger.info(f"  ❌ 부정 피드백: {query[:30]}...")
     
     def get_cache_stats(self) -> Dict:
-        """캐시 통계 조회 (NEW!)"""
+        """캐시 통계 조회"""
         if not self.enable_cache or not self.cache:
             return {'cache_enabled': False}
         
@@ -627,22 +491,17 @@ class CachedRAGKnowledgeService:
         return stats
     
     def _search_faq(self, query: str, category: str = None, top_k: int = 3) -> List[Dict]:
-        """FAQ 검색"""
         query_embedding = self.model.encode([query], convert_to_numpy=True)
         faiss.normalize_L2(query_embedding)
-        
-        scores, indices = self.index.search(query_embedding, min(top_k * 2, len(self.faq_df)))
+        scores, indices = self.index.search(query_embedding, min(top_k * 5, len(self.faq_df)))
         
         results = []
         for score, idx in zip(scores[0], indices[0]):
-            if score < 0.2:
-                continue
-            
             faq_row = self.faq_df.iloc[idx]
-            
-            if category and faq_row['category'] != category:
+            # 카테고리 체크를 하되, 점수가 어느정도 높으면(예: 0.2) 카테고리가 달라도 통과시킴
+            if category and faq_row['category'] != category and score < 0.2:
                 continue
-            
+                
             results.append({
                 'faq_id': faq_row['id'],
                 'category': faq_row['category'],
@@ -650,10 +509,7 @@ class CachedRAGKnowledgeService:
                 'answer': faq_row['answer'],
                 'similarity_score': float(score)
             })
-            
-            if len(results) >= top_k:
-                break
-        
+            if len(results) >= top_k: break
         return results
     
     def _build_retrieved_context(self, results: List[Dict]) -> str:
@@ -700,34 +556,3 @@ class CachedRAGKnowledgeService:
 
 # 편의를 위한 alias
 KnowledgeService = CachedRAGKnowledgeService
-
-# ==================== 테스트 ====================
-
-def test_cache_system():
-    print("\n" + "=" * 70)
-    print("캐시 시스템 테스트")
-    print("=" * 70)
-    
-    # 본인의 실제 파일명 확인 필수 
-    csv_file = "faq_database.csv" 
-    if not os.path.exists(csv_file):
-        with open(csv_file, "w", encoding="utf-8") as f:
-            f.write("id,category,question,answer,keywords\nfaq_001,tech_support,인터넷 안됨,공유기를 껐다 켜세요,인터넷")
-
-    service = KnowledgeService(csv_path=csv_file)
-    session_id = "test_user_123"
-    query = "인터넷이 안 돼요"
-    
-    print("\n[테스트 1] 첫 번째 요청 (캐시 미스)")
-    res1 = service.search_knowledge(query, "tech_support", session_id)
-    print(f"캐시 사용: {res1['from_cache']} | 답변: {res1['answer'][:50]}...")
-    
-    print("\n[테스트 2] 긍정 피드백 제출")
-    service.submit_feedback(query, "tech_support", True)
-    
-    print("\n[테스트 3] 두 번째 요청 (캐시 히트)")
-    res2 = service.search_knowledge(query, "tech_support", session_id)
-    print(f"캐시 사용: {res2['from_cache']} | 답변: {res2['answer'][:50]}...")
-
-if __name__ == "__main__":
-    test_cache_system()
