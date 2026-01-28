@@ -26,7 +26,7 @@ class CSAgent:
             api_key=settings.OPENAI_API_KEY
         )
 
-    async def process_query(self, query: str, conversation_history: list = None):
+    async def process_query(self, query: str, conversation_history: list = None, session_id: str = "default_user"):
         # ---------------------------------------------------------
         # Step 1: 분류 에이전트 & 입력 검증 (Classification)
         # ---------------------------------------------------------
@@ -54,11 +54,15 @@ class CSAgent:
         final_message = ""
         
         if intent == "TECH_SUPPORT":
-            # [다이어그램 로직] 기술 지원 에이전트 + RAG(Knowledge)
-            knowledge_result = self.knowledge.search_knowledge(query)
-            # RAG 결과를 컨텍스트로 활용하여 LLM이 답변 생성
-            context = knowledge_result.get("answer", "") if isinstance(knowledge_result, dict) else str(knowledge_result)
-            final_message = await self._generate_llm_response("기술 지원", query, context)
+        # B파트의 상세 검색 호출 (세션 ID 전달로 맥락 유지 활성화)
+            knowledge_result = self.knowledge._search_knowledge_internal(
+                query=query, 
+             category="tech_support", 
+                session_id=session_id
+            )
+        # B파트가 이미 LLM을 썼거나 캐시를 가져왔으므로 그 결과를 그대로 사용
+            final_message = knowledge_result.get("answer", "")
+            response_data["from_cache"] = knowledge_result.get("from_cache", False) # 캐시 여부 기록
             response_data["data"] = knowledge_result
 
         elif intent == "ORDER" or intent == "BILLING":
