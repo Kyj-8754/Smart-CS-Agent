@@ -25,13 +25,34 @@ d:\Smart-CS-Agent\
 
 ### 1단계: 백엔드 실행
 
-Python 3.11 환경에서 다음 명령어를 실행하여 필요한 패키지를 설치하고 서버를 시작합니다.
+
+본 프로젝트는 **Conda 기반 Python 환경**을 사용하여  
+개발 환경 차이로 인한 오류를 최소화합니다.
+
+> ⚠️ 반드시 `environment.yml`을 통해 가상환경을 먼저 구성한 후  
+> Python 패키지를 설치해 주세요.
+
+---
+
+## 1️⃣ 백엔드 실행
+
+### 1-1. Conda 가상환경 생성
+
+프로젝트 **루트 디렉토리**에서 다음 명령어를 실행합니다.
 
 ```bash
+conda env create -f environment.yml
+conda activate smart-cs-agent
+```
+
+Python 3.11 환경에서 다음 명령어를 실행하여 필요한 패키지를 설치하고 서버를 시작합니다.
+
+
 # 의존성 설치
 pip install -r requirements.txt
 
 # 서버 실행 (backend 폴더가 있는 루트 경로에서 실행)
+```bash
 uvicorn backend.app:app --reload
 ```
 서버는 `http://localhost:8000`에서 실행됩니다.
