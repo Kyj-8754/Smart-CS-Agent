@@ -515,7 +515,7 @@ class CachedRAGKnowledgeService:
         original_query = query
         
         logger.info(f"\n{'='*60}")
-        logger.info(f"검색 시작: '{query}'")
+        logger.info(f"검색 시작: '{query}' (카테고리: {category})")
         logger.info(f"{'='*60}")
         
         # Step 0: 캐시 확인 (원래 질문으로)
@@ -543,34 +543,61 @@ class CachedRAGKnowledgeService:
                     "used_llm": False
                 }
         
-        # Step 1: 대화 맥락 해결
+        # Step 1: 대화 맥락 해결 + 카테고리 유지
+        resolved_category = category
         if self.conversation and session_id:
             resolved_query = self.conversation.resolve_references(session_id, query)
             if resolved_query != query:
                 logger.info(f"  🔄 맥락 해결됨: '{query}' → '{resolved_query}'")
                 query = resolved_query
+                
+                # ✅ 카테고리 유지 (대화 맥락에서)
+                context = self.conversation.sessions.get(session_id, {})
+                if context.get('current_issue'):
+                    issue_to_category = {
+                        'login_issue': 'tech_support',
+                        'wifi_issue': 'tech_support',
+                        'internet_issue': 'tech_support',
+                        'billing_issue': 'billing',
+                        'order_issue': 'transaction',
+                        'general_issue': category
+                    }
+                    resolved_category = issue_to_category.get(
+                        context['current_issue'], 
+                        category
+                    )
+                    logger.info(f"  📂 카테고리 추론: {resolved_category}")
         
-        # Step 2: FAQ 검색
-        results = self._search_faq(query, category, top_k=3)
+        # Step 2: FAQ 검색 (카테고리 강제!)
+        results = self._search_faq(query, resolved_category, top_k=3, strict_category=True)
         
-        # Step 3: 검색 결과 없어도 LLM 호출
+        # Step 3: 검색 결과 없으면 카테고리 완화
+        if not results and resolved_category:
+            logger.warning(f"  ⚠️  카테고리 {resolved_category}에서 결과 없음 - 카테고리 제한 해제")
+            results = self._search_faq(query, resolved_category, top_k=3, strict_category=False)
+        
+        # Step 4: 여전히 없으면 일반 지식
         if not results:
             logger.warning("  ⚠️  FAQ 검색 결과 없음 - 일반 지식으로 답변")
-            retrieved_context = "[FAQ 검색 결과 없음]\n일반적인 쇼핑몰 고객지원 지식을 바탕으로 친절하게 답변해주세요."
+            retrieved_context = f"[FAQ 검색 결과 없음]\n카테고리: {resolved_category}\n일반적인 쇼핑몰 고객지원 지식을 바탕으로 친절하게 답변해주세요."
             best_score = 0.0
         else:
             retrieved_context = self._build_retrieved_context(results)
             best_score = results[0]['similarity_score']
             logger.info(f"  ✅ FAQ 검색 완료 (Top 유사도: {best_score:.2f})")
         
-        # Step 4: 프롬프트 구성
+        # Step 5: 프롬프트 구성 (카테고리 강조!)
         conversation_context = ""
         if self.conversation and session_id:
             conversation_context = self.conversation.build_context_prompt(session_id)
+            # ✅ 카테고리 추가
+            if resolved_category:
+                conversation_context += f"\n⚠️ 현재 문제 카테고리: **{resolved_category}**\n"
+                conversation_context += f"⚠️ 이 카테고리와 무관한 답변은 절대 금지!\n\n"
         
         final_prompt = self._chain_prompts(query, retrieved_context, conversation_context)
         
-        # Step 5: LLM 호출
+        # Step 6: LLM 호출
         try:
             logger.info("[Generation] LLM 답변 생성")
             answer = self.llm_agent.generate_with_retry(prompt=final_prompt)
@@ -580,7 +607,7 @@ class CachedRAGKnowledgeService:
                 self.cache.add(
                     query=original_query,
                     answer=answer,
-                    category=category,
+                    category=resolved_category,
                     verified=False,
                     metadata={
                         'faq_ids': [r['faq_id'] for r in results] if results else [],
@@ -647,8 +674,8 @@ class CachedRAGKnowledgeService:
         stats['cache_enabled'] = True
         return stats
     
-    def _search_faq(self, query: str, category: str = None, top_k: int = 3) -> List[Dict]:
-        """FAQ 검색"""
+    def _search_faq(self, query: str, category: str = None, top_k: int = 3, strict_category: bool = False) -> List[Dict]:
+        """FAQ 검색 - 카테고리 강제 옵션 추가"""
         query_embedding = self.model.encode([query], convert_to_numpy=True)
         faiss.normalize_L2(query_embedding)
         
@@ -662,9 +689,16 @@ class CachedRAGKnowledgeService:
             
             faq_row = self.faq_df.iloc[idx]
             
-            if category and faq_row['category'] != category:
-                if score < 0.3:
-                    continue
+            # ✅ 카테고리 체크 강화
+            if category:
+                if strict_category:
+                    # 엄격 모드: 카테고리 일치만 허용
+                    if faq_row['category'] != category:
+                        continue
+                else:
+                    # 유연 모드: 점수 높으면 다른 카테고리도 허용
+                    if faq_row['category'] != category and score < 0.3:
+                        continue
             
             results.append({
                 'faq_id': faq_row['id'],
