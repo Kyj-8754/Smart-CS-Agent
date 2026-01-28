@@ -1,8 +1,8 @@
 """
-B파트: 통합 지식 서비스 (All-in-One)
-- 대화 맥락 관리 (ConversationManager 통합)
-- FAQ 검색 (KnowledgeService)
-- 규칙 기반 판단
+B파트: 캐시 시스템이 추가된 RAG
+- 사용자 피드백 기반 캐시
+- 검증된 답변 재사용
+- LLM 비용 절감
 """
 
 from sentence_transformers import SentenceTransformer
@@ -15,32 +15,207 @@ from datetime import datetime
 import logging
 import os
 import re
+import time
+import json
+import hashlib
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+# ==================== 캐시 관리자 (NEW!) ====================
+
+class AnswerCache:
+    """
+    검증된 답변 캐시 시스템
+    
+    기능:
+    1. 질문-답변 쌍 저장
+    2. 사용자 피드백 기반 캐싱
+    3. 캐시 히트 시 즉시 반환 (LLM 호출 없음)
+    """
+    
+    def __init__(self, cache_file: str = "backend/data/answer_cache.json"):
+        self.cache_file = Path(cache_file)
+        self.cache = self._load_cache()
+        self.embeddings_cache = {}  # 빠른 검색을 위한 임베딩 캐시
+        logger.info(f"  ✅ 답변 캐시 초기화 ({len(self.cache)}개 저장됨)")
+    
+    def _load_cache(self) -> Dict:
+        """캐시 파일 로드"""
+        if self.cache_file.exists():
+            try:
+                with open(self.cache_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception as e:
+                logger.warning(f"캐시 로드 실패: {e}")
+                return {}
+        return {}
+    
+    def _save_cache(self):
+        """캐시 파일 저장"""
+        try:
+            self.cache_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.cache_file, 'w', encoding='utf-8') as f:
+                json.dump(self.cache, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.error(f"캐시 저장 실패: {e}")
+    
+    def _get_query_hash(self, query: str, category: str = None) -> str:
+        """질문의 해시값 생성"""
+        key = f"{category}:{query}" if category else query
+        return hashlib.md5(key.encode()).hexdigest()
+    
+    def get(self, query: str, category: str = None, similarity_threshold: float = 0.95) -> Optional[Dict]:
+        """
+        캐시에서 답변 조회
+        
+        Args:
+            query: 질문
+            category: 카테고리
+            similarity_threshold: 유사도 임계값 (기본 0.95 - 매우 유사해야 캐시 사용)
+        
+        Returns:
+            캐시된 답변 또는 None
+        """
+        # 정확히 같은 질문 찾기
+        query_hash = self._get_query_hash(query, category)
+        
+        if query_hash in self.cache:
+            cached_item = self.cache[query_hash]
+            
+            # 승인된 답변만 반환
+            if cached_item.get('verified', False):
+                logger.info(f"  💾 캐시 히트! (정확한 매칭)")
+                cached_item['cache_hit'] = True
+                cached_item['cache_type'] = 'exact'
+                return cached_item
+        
+        # 유사한 질문 찾기 (임베딩 기반)
+        # TODO: 임베딩 기반 유사 질문 검색 (선택 사항)
+        
+        return None
+    
+    def add(self, 
+            query: str, 
+            answer: str, 
+            category: str = None,
+            verified: bool = False,
+            feedback_score: int = 0,
+            metadata: Dict = None) -> str:
+        """
+        캐시에 답변 추가
+        
+        Args:
+            query: 질문
+            answer: 답변
+            category: 카테고리
+            verified: 사용자가 승인했는지
+            feedback_score: 피드백 점수 (1-5)
+            metadata: 추가 메타데이터
+        
+        Returns:
+            캐시 키
+        """
+        query_hash = self._get_query_hash(query, category)
+        
+        self.cache[query_hash] = {
+            'query': query,
+            'answer': answer,
+            'category': category,
+            'verified': verified,
+            'feedback_score': feedback_score,
+            'created_at': datetime.now().isoformat(),
+            'hit_count': 0,
+            'metadata': metadata or {}
+        }
+        
+        self._save_cache()
+        logger.info(f"  💾 캐시 추가: {query[:30]}... (verified={verified})")
+        
+        return query_hash
+    
+    def verify(self, query: str, category: str = None, feedback_score: int = 5):
+        """
+        사용자가 답변을 승인
+        
+        Args:
+            query: 질문
+            category: 카테고리
+            feedback_score: 피드백 점수 (1-5)
+        """
+        query_hash = self._get_query_hash(query, category)
+        
+        if query_hash in self.cache:
+            self.cache[query_hash]['verified'] = True
+            self.cache[query_hash]['feedback_score'] = feedback_score
+            self.cache[query_hash]['verified_at'] = datetime.now().isoformat()
+            
+            self._save_cache()
+            logger.info(f"  ✅ 답변 승인: {query[:30]}... (점수: {feedback_score})")
+        else:
+            logger.warning(f"  ⚠️  캐시에 없는 질문: {query[:30]}...")
+    
+    def reject(self, query: str, category: str = None, reason: str = None):
+        """
+        사용자가 답변을 거부
+        
+        Args:
+            query: 질문
+            category: 카테고리
+            reason: 거부 이유
+        """
+        query_hash = self._get_query_hash(query, category)
+        
+        if query_hash in self.cache:
+            # 거부된 답변은 캐시에서 제거 또는 마킹
+            self.cache[query_hash]['verified'] = False
+            self.cache[query_hash]['rejected'] = True
+            self.cache[query_hash]['rejected_at'] = datetime.now().isoformat()
+            self.cache[query_hash]['rejection_reason'] = reason
+            
+            self._save_cache()
+            logger.info(f"  ❌ 답변 거부: {query[:30]}...")
+    
+    def increment_hit_count(self, query: str, category: str = None):
+        """캐시 히트 카운트 증가"""
+        query_hash = self._get_query_hash(query, category)
+        
+        if query_hash in self.cache:
+            self.cache[query_hash]['hit_count'] = self.cache[query_hash].get('hit_count', 0) + 1
+            self.cache[query_hash]['last_used'] = datetime.now().isoformat()
+            self._save_cache()
+    
+    def get_stats(self) -> Dict:
+        """캐시 통계"""
+        total = len(self.cache)
+        verified = sum(1 for item in self.cache.values() if item.get('verified'))
+        rejected = sum(1 for item in self.cache.values() if item.get('rejected'))
+        pending = total - verified - rejected
+        
+        total_hits = sum(item.get('hit_count', 0) for item in self.cache.values())
+        
+        return {
+            'total_cached': total,
+            'verified': verified,
+            'rejected': rejected,
+            'pending': pending,
+            'total_cache_hits': total_hits,
+            'cache_hit_rate': total_hits / max(total, 1)
+        }
+
+
 # ==================== 대화 맥락 관리자 ====================
 
 class ConversationManager:
-    """
-    대화 맥락 관리
-    
-    기능:
-    1. 세션별 대화 기록 저장
-    2. 지시 대명사 해결
-    3. 시도한 해결책 추적
-    """
+    """대화 맥락 관리"""
     
     def __init__(self):
         self.sessions = {}
     
-    def add_turn(self, 
-                 session_id: str, 
-                 user_query: str, 
-                 bot_response: str,
-                 suggested_action: str = None,
-                 faq_id: str = None):
+    def add_turn(self, session_id: str, user_query: str, bot_response: str, 
+                 suggested_action: str = None, faq_ids: List[str] = None,
+                 from_cache: bool = False):
         """대화 턴 추가"""
         if session_id not in self.sessions:
             self.sessions[session_id] = {
@@ -56,12 +231,14 @@ class ConversationManager:
             'user_query': user_query,
             'bot_response': bot_response,
             'suggested_action': suggested_action,
-            'faq_id': faq_id
+            'faq_ids': faq_ids or [],
+            'from_cache': from_cache  # 캐시에서 온 답변인지
         })
         
         if suggested_action:
             self.sessions[session_id]['last_suggestion'] = suggested_action
-            self.sessions[session_id]['tried_solutions'].append(suggested_action)
+            if suggested_action not in self.sessions[session_id]['tried_solutions']:
+                self.sessions[session_id]['tried_solutions'].append(suggested_action)
         
         if not self.sessions[session_id]['current_issue']:
             self.sessions[session_id]['current_issue'] = self._extract_issue(user_query)
@@ -81,7 +258,6 @@ class ConversationManager:
         for keyword, issue in issues.items():
             if keyword in query:
                 return issue
-        
         return 'general_issue'
     
     def resolve_references(self, session_id: str, query: str) -> str:
@@ -90,7 +266,6 @@ class ConversationManager:
             return query
         
         context = self.sessions[session_id]
-        
         if not context['last_suggestion']:
             return query
         
@@ -99,17 +274,12 @@ class ConversationManager:
             '그것': context['last_suggestion'],
             '이거': context['last_suggestion'],
             '이것': context['last_suggestion'],
-            '저거': context['last_suggestion'],
-            '저것': context['last_suggestion'],
-            '그렇게': context['last_suggestion'],
-            '이렇게': context['last_suggestion']
         }
         
         resolved = query
         for ref, actual in references.items():
             if ref in resolved:
                 resolved = resolved.replace(ref, actual)
-                
                 if actual not in context['tried_solutions']:
                     context['tried_solutions'].append(actual)
         
@@ -118,566 +288,466 @@ class ConversationManager:
         
         return resolved
     
-    def get_context_summary(self, session_id: str) -> Dict:
-        """현재 맥락 요약"""
+    def build_context_prompt(self, session_id: str) -> str:
+        """대화 맥락을 프롬프트로 변환"""
         if session_id not in self.sessions:
-            return {'has_context': False}
+            return ""
         
         context = self.sessions[session_id]
-        
-        return {
-            'has_context': True,
-            'turn_count': len(context['history']),
-            'current_issue': context['current_issue'],
-            'tried_solutions': context['tried_solutions'],
-            'last_suggestion': context['last_suggestion']
-        }
-    
-    def add_context_to_prompt(self, session_id: str, query: str) -> str:
-        """AI 프롬프트에 맥락 추가"""
-        if session_id not in self.sessions:
-            return query
-        
-        context = self.sessions[session_id]
-        
         if not context['tried_solutions']:
-            return query
+            return ""
         
-        context_text = f"[이전 대화 맥락]\n"
-        context_text += f"- 현재 문제: {context['current_issue']}\n"
-        context_text += f"- 이미 시도한 방법: {', '.join(context['tried_solutions'])}\n\n"
-        context_text += f"[현재 질문]\n{query}"
+        prompt = "\n[이전 대화 맥락]\n"
+        prompt += f"- 현재 문제: {context['current_issue']}\n"
+        prompt += f"- 고객이 이미 시도한 방법:\n"
+        for i, solution in enumerate(context['tried_solutions'], 1):
+            prompt += f"  {i}. {solution}\n"
+        prompt += "\n⚠️ 위 방법들은 이미 시도했으므로 다른 해결책을 제안하세요.\n\n"
         
-        return context_text
+        return prompt
+
+
+# ==================== Agent (재시도 로직) ====================
+
+class LLMAgent:
+    """LLM 호출을 담당하는 Agent"""
     
-    def clear_session(self, session_id: str):
-        """세션 삭제"""
-        if session_id in self.sessions:
-            del self.sessions[session_id]
+    def __init__(self, api_key: str = None, max_retries: int = 3):
+        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
+        self.max_retries = max_retries
+        self.client = None
+        
+        if self.api_key:
+            try:
+                from openai import OpenAI
+                self.client = OpenAI(api_key=self.api_key)
+                logger.info("  ✅ LLM Agent 초기화 완료")
+            except Exception as e:
+                logger.error(f"  ❌ LLM Agent 초기화 실패: {e}")
     
-    def cleanup_old_sessions(self, hours: int = 24):
-        """오래된 세션 정리"""
-        now = datetime.now()
-        to_delete = []
+    def generate_with_retry(self, 
+                           prompt: str, 
+                           system_prompt: str = None,
+                           temperature: float = 0.7,
+                           max_tokens: int = 500) -> str:
+        """재시도 로직이 있는 LLM 호출"""
+        if not self.client:
+            raise Exception("OpenAI 클라이언트가 초기화되지 않았습니다")
         
-        for session_id, context in self.sessions.items():
-            age = (now - context['created_at']).total_seconds() / 3600
-            if age > hours:
-                to_delete.append(session_id)
+        system_prompt = system_prompt or self._get_default_system_prompt()
         
-        for session_id in to_delete:
-            del self.sessions[session_id]
-        
-        return len(to_delete)
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                logger.info(f"  🤖 LLM 호출 시도 {attempt}/{self.max_retries}")
+                
+                response = self.client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=temperature,
+                    max_tokens=max_tokens
+                )
+                
+                answer = response.choices[0].message.content.strip()
+                logger.info(f"  ✅ LLM 호출 성공 (길이: {len(answer)}자)")
+                
+                return answer
+                
+            except Exception as e:
+                logger.warning(f"  ⚠️  LLM 호출 실패 (시도 {attempt}): {e}")
+                
+                if attempt < self.max_retries:
+                    wait_time = 2 ** attempt
+                    logger.info(f"  ⏳ {wait_time}초 후 재시도...")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"  ❌ LLM 호출 최종 실패")
+                    raise Exception(f"LLM 호출 실패: {e}")
+    
+    def _get_default_system_prompt(self) -> str:
+        """기본 시스템 프롬프트"""
+        return """당신은 친절하고 전문적인 고객 지원 AI입니다.
+
+답변 규칙:
+1. 고객이 이미 시도한 방법은 다시 제안하지 마세요
+2. 단계별로 명확하게 설명하세요 (1, 2, 3...)
+3. 기술 용어는 쉽게 풀어서 설명하세요
+4. 필요시 주의사항을 추가하세요
+5. 문제가 계속되면 고객센터 안내를 추가하세요
+6. 존댓말을 사용하세요"""
 
 
-# ==================== 지식 서비스 ====================
+# ==================== RAG + 캐시 지식 서비스 ====================
 
-class KnowledgeService:
+class CachedRAGKnowledgeService:
     """
-    통합 지식 서비스
+    캐시 시스템이 추가된 RAG
     
-    기능:
-    - FAQ 검색 (FAISS)
-    - 규칙 기반 애매모호 판단
-    - 대화 맥락 유지
-    - AI fallback (선택)
+    워크플로우:
+    1. 캐시 확인 → 있으면 즉시 반환 (LLM 호출 없음)
+    2. 없으면 RAG 프로세스 실행
+    3. 답변 생성 후 캐시에 저장 (pending 상태)
+    4. 사용자 피드백 받으면 캐시 업데이트
     """
     
     def __init__(self, 
                  csv_path: str = "data/faq_database.csv",
+                 cache_file: str = "data/answer_cache.json",
                  model_name: str = "jhgan/ko-sroberta-multitask",
-                 use_ai_fallback: bool = False,
-                 enable_conversation: bool = True):
+                 enable_conversation: bool = True,
+                 enable_cache: bool = True,
+                 api_key: str = None):
         
         logger.info("=" * 60)
-        logger.info("B파트: 통합 지식 서비스 초기화")
+        logger.info("B파트: 캐시 + RAG 시스템 초기화")
         logger.info("=" * 60)
         
-        self.csv_path = csv_path
-        self.use_ai_fallback = use_ai_fallback
-        self.enable_conversation = enable_conversation
+        self.enable_cache = enable_cache
         
-        # 대화 맥락 관리자
+        # 캐시 (NEW!)
+        if enable_cache:
+            self.cache = AnswerCache(cache_file)
+        else:
+            self.cache = None
+        
+        # 대화 맥락
         if enable_conversation:
             self.conversation = ConversationManager()
             logger.info("  ✅ 대화 맥락 관리 활성화")
         else:
             self.conversation = None
         
+        # LLM Agent
+        self.llm_agent = LLMAgent(api_key=api_key, max_retries=3)
+        
         # 임베딩 모델
         logger.info(f"임베딩 모델 로드: {model_name}")
-        try:
-            self.model = SentenceTransformer(model_name)
-            self.dimension = self.model.get_sentence_embedding_dimension()
-            logger.info(f"  ✅ 임베딩 차원: {self.dimension}")
-        except Exception as e:
-            logger.error(f"  ❌ 모델 로드 실패: {e}")
-            raise
+        self.model = SentenceTransformer(model_name)
+        self.dimension = self.model.get_sentence_embedding_dimension()
+        logger.info(f"  ✅ 임베딩 차원: {self.dimension}")
         
-        # CSV 로드
-        self.faq_df = self._load_csv()
+        # FAQ 데이터
+        self.faq_df = self._load_csv(csv_path)
+        self.index = self._build_index()
         
-        # FAISS 인덱스
-        self.index = None
-        if not self.faq_df.empty:
-            self.index = self._build_index()
-        
-        # AI API (선택)
-        self.ai_client = None
-        if use_ai_fallback:
-            self._setup_ai_api()
-        
-        logger.info("✅ 통합 지식 서비스 초기화 완료\n")
+        logger.info("✅ 캐시 + RAG 시스템 초기화 완료\n")
     
-    def _setup_ai_api(self):
-        """AI API 설정"""
-        try:
-            key = os.getenv("OPENAI_API_KEY")
-            if not key:
-                logger.warning("⚠️  OpenAI API 키 없음")
-                self.use_ai_fallback = False
-                return
-            
-            from openai import OpenAI
-            self.ai_client = OpenAI(api_key=key)
-            logger.info("  ✅ AI API 설정 완료")
-            
-        except ImportError:
-            logger.warning("⚠️  openai 패키지 없음")
-            self.use_ai_fallback = False
-        except Exception as e:
-            logger.warning(f"⚠️  AI API 설정 실패: {e}")
-            self.use_ai_fallback = False
-    
-    def _load_csv(self) -> pd.DataFrame:
+    def _load_csv(self, csv_path) -> pd.DataFrame:
         """CSV 로드"""
-        csv_file = Path(self.csv_path)
+        csv_file = Path(csv_path)
         
         if not csv_file.exists():
-            logger.error(f"❌ CSV 파일 없음: {self.csv_path}")
-            raise FileNotFoundError(f"FAQ 파일을 찾을 수 없습니다: {self.csv_path}")
+            raise FileNotFoundError(f"FAQ 파일 없음: {csv_path}")
         
-        try:
-            df = pd.read_csv(csv_file, encoding='utf-8')
-            logger.info(f"  ✅ CSV 로드: {len(df)}개 FAQ")
-            
-            required = ['id', 'category', 'question', 'answer']
-            missing = [col for col in required if col not in df.columns]
-            if missing:
-                raise ValueError(f"필수 컬럼 누락: {missing}")
-            
-            return df
-            
-        except Exception as e:
-            logger.error(f"  ❌ CSV 로드 실패: {e}")
-            raise
+        df = pd.read_csv(csv_file, encoding='utf-8')
+        logger.info(f"  ✅ CSV 로드: {len(df)}개 FAQ")
+        
+        required = ['id', 'category', 'question', 'answer']
+        missing = [col for col in required if col not in df.columns]
+        if missing:
+            raise ValueError(f"필수 컬럼 누락: {missing}")
+        
+        return df
     
     def _build_index(self):
         """FAISS 인덱스 생성"""
         logger.info("FAISS 인덱스 생성 중...")
         
-        try:
-            texts = []
-            for idx, row in self.faq_df.iterrows():
-                text = row['question']
-                if 'keywords' in self.faq_df.columns and pd.notna(row['keywords']):
-                    text += " " + row['keywords'].replace(',', ' ')
-                texts.append(text)
-            
-            embeddings = self.model.encode(
-                texts,
-                convert_to_numpy=True,
-                show_progress_bar=False
-            )
-            
-            faiss.normalize_L2(embeddings)
-            
-            index = faiss.IndexFlatIP(self.dimension)
-            index.add(embeddings)
-            
-            logger.info(f"  ✅ FAISS 인덱스: {index.ntotal}개 벡터")
-            return index
-            
-        except Exception as e:
-            logger.error(f"  ❌ 인덱스 생성 실패: {e}")
-            raise
-    
-    def _is_ambiguous(self, query: str, similarity_score: float, category: str) -> Tuple[bool, str]:
-        """규칙 기반 애매모호 판단"""
-        if similarity_score < 0.6:
-            
-            ambiguous_patterns = {
-                '주어 없음': ['느려요', '안 돼요', '안 됩니다', '이상해요', '문제', '오류예요'],
-                '지시어': ['그거', '이거', '저거', '이것', '그것', '저것'],
-                '불완전': ['왜', '뭐', '어떻게', '언제']
-            }
-            
-            for pattern_type, patterns in ambiguous_patterns.items():
-                if any(pattern in query for pattern in patterns):
-                    
-                    specific_nouns = {
-                        'tech_support': ['인터넷', '와이파이', '앱', '기기', '화면', '소리'],
-                        'billing_support': ['청구서', '요금', '결제', '환불', '영수증'],
-                        'order_management': ['주문', '배송', '교환', '반품', '취소'],
-                        'account_management': ['비밀번호', '로그인', '계정', '회원', '가입']
-                    }
-                    
-                    category_nouns = specific_nouns.get(category, [])
-                    has_specific = any(noun in query for noun in category_nouns)
-                    
-                    if not has_specific:
-                        return True, f"{pattern_type}"
+        texts = []
+        for idx, row in self.faq_df.iterrows():
+            text = row['question']
+            if 'keywords' in self.faq_df.columns and pd.notna(row['keywords']):
+                text += " " + row['keywords'].replace(',', ' ')
+            texts.append(text)
         
-        return False, ""
-    
-    def _generate_clarification_question(self, category: str, faq_results: List[Dict]) -> str:
-        """명확화 질문 생성"""
-        templates = {
-            'tech_support': {
-                'title': '기술 지원',
-                'options': [
-                    '🌐 인터넷/네트워크 문제',
-                    '📱 앱/프로그램 문제',
-                    '💻 기기 하드웨어 문제',
-                    '🔊 소리/화면 문제'
-                ]
-            },
-            'billing_support': {
-                'title': '청구 지원',
-                'options': [
-                    '📋 청구서 확인',
-                    '💳 결제 문제',
-                    '💰 환불 요청',
-                    '🔄 자동결제 관리'
-                ]
-            },
-            'order_management': {
-                'title': '주문 관리',
-                'options': [
-                    '❌ 주문 취소',
-                    '📦 배송 문의',
-                    '🔄 교환/반품',
-                    '📍 배송지 변경'
-                ]
-            },
-            'account_management': {
-                'title': '계정 관리',
-                'options': [
-                    '🔐 비밀번호 문제',
-                    '🚪 로그인 문제',
-                    '✏️  정보 수정',
-                    '🚫 회원 탈퇴'
-                ]
-            }
-        }
+        embeddings = self.model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
+        faiss.normalize_L2(embeddings)
         
-        template = templates.get(category, {
-            'title': '문의',
-            'options': ['기타 문의']
-        })
+        index = faiss.IndexFlatIP(self.dimension)
+        index.add(embeddings)
         
-        question = f"**{template['title']}** 관련 문의시군요!\n"
-        question += "구체적으로 어떤 도움이 필요하신가요?\n\n"
-        
-        for i, opt in enumerate(template['options'], 1):
-            question += f"{i}️⃣  {opt}\n"
-        
-        question += f"{len(template['options'])+1}️⃣  기타\n\n"
-        question += "번호를 선택하거나 자세히 설명해주세요."
-        
-        return question
-    
-    def _is_out_of_scope(self, query: str, similarity_score: float) -> bool:
-        """범위 밖 판단"""
-        if similarity_score < 0.25:
-            off_topic = [
-                '날씨', '뉴스', '주식', '맛집', '여행', '영화', 
-                '드라마', '음악', '게임', '요리', '운동'
-            ]
-            return any(keyword in query for keyword in off_topic)
-        return False
+        logger.info(f"  ✅ FAISS 인덱스: {index.ntotal}개 벡터")
+        return index
     
     def search_knowledge(self, 
                         query: str, 
                         category: str = None,
                         session_id: str = None) -> Dict:
         """
-        지식 검색 (대화 맥락 지원)
+        캐시 + RAG 기반 지식 검색
         
-        Args:
-            query: 사용자 질문
-            category: 분류된 카테고리
-            session_id: 세션 ID (대화 맥락용)
-        
-        Returns:
-            {
-                "answer": 답변,
-                "needs_clarification": 재질문 필요,
-                "clarification_question": 재질문,
-                "confidence": 신뢰도,
-                "context_used": 맥락 사용 여부
-            }
+        프로세스:
+        1. 캐시 확인 → 있으면 즉시 반환
+        2. 없으면 RAG 실행
+        3. 답변을 캐시에 저장 (pending)
         """
         original_query = query
         
-        # 1. 대화 맥락에서 지시 대명사 해결
-        if self.enable_conversation and session_id and self.conversation:
-            resolved_query = self.conversation.resolve_references(session_id, query)
+        logger.info(f"\n{'='*60}")
+        logger.info(f"검색 시작: '{query}'")
+        logger.info(f"{'='*60}")
+        
+        # Step 0: 캐시 확인 (NEW!)
+        if self.enable_cache and self.cache:
+            cached_answer = self.cache.get(query, category)
             
+            if cached_answer:
+                # 캐시 히트! LLM 호출 없이 즉시 반환
+                self.cache.increment_hit_count(query, category)
+                
+                logger.info("  💾 캐시에서 답변 반환 (LLM 호출 없음)")
+                
+                # 대화 기록
+                if self.conversation and session_id:
+                    self.conversation.add_turn(
+                        session_id=session_id,
+                        user_query=original_query,
+                        bot_response=cached_answer['answer'],
+                        from_cache=True
+                    )
+                
+                return {
+                    "answer": cached_answer['answer'],
+                    "confidence": 1.0,  # 캐시된 답변은 검증됨
+                    "from_cache": True,
+                    "cache_verified": cached_answer.get('verified', False),
+                    "cache_hit_count": cached_answer.get('hit_count', 0),
+                    "used_llm": False  # LLM 호출 안 함!
+                }
+        
+        # Step 1: 대화 맥락 해결
+        if self.conversation and session_id:
+            resolved_query = self.conversation.resolve_references(session_id, query)
             if resolved_query != query:
-                logger.info(f"[맥락] '{query}' → '{resolved_query}'")
                 query = resolved_query
         
-        if self.index is None:
+        # Step 2-4: RAG 프로세스 (기존과 동일)
+        results = self._search_faq(query, category, top_k=3)
+        
+        if not results:
             return {
-                "answer": "죄송합니다. 지식 베이스를 사용할 수 없습니다.",
-                "needs_clarification": False,
-                "out_of_scope": False
+                "answer": "관련 정보를 찾을 수 없습니다.",
+                "confidence": 0.0
             }
         
+        best_score = results[0]['similarity_score']
+        
+        # 프롬프트 구성
+        retrieved_context = self._build_retrieved_context(results)
+        conversation_context = ""
+        if self.conversation and session_id:
+            conversation_context = self.conversation.build_context_prompt(session_id)
+        
+        final_prompt = self._chain_prompts(query, retrieved_context, conversation_context)
+        
+        # LLM 호출
         try:
-            # 2. FAQ 검색
-            results = self._search_faq(query, category=category, top_k=3)
+            logger.info("[Generation] LLM 답변 생성")
+            answer = self.llm_agent.generate_with_retry(prompt=final_prompt)
             
-            if not results:
-                return {
-                    "answer": self._generate_out_of_scope_message(),
-                    "needs_clarification": False,
-                    "out_of_scope": True,
-                    "confidence": 0.0
-                }
+            # Step 5: 캐시에 저장 (pending 상태) (NEW!)
+            if self.enable_cache and self.cache:
+                self.cache.add(
+                    query=original_query,
+                    answer=answer,
+                    category=category,
+                    verified=False,  # 아직 검증 안 됨
+                    metadata={
+                        'faq_ids': [r['faq_id'] for r in results],
+                        'confidence': best_score
+                    }
+                )
             
-            best_match = results[0]
-            score = best_match['similarity_score']
-            matched_category = best_match['category']
-            
-            # 3. 범위 밖 체크
-            if self._is_out_of_scope(query, score):
-                logger.info(f"🚫 범위 밖 (유사도: {score:.3f})")
-                return {
-                    "answer": self._generate_out_of_scope_message(),
-                    "needs_clarification": False,
-                    "out_of_scope": True,
-                    "confidence": score
-                }
-            
-            # 4. 애매모호 체크
-            is_ambig, reason = self._is_ambiguous(query, score, matched_category)
-            
-            if is_ambig:
-                logger.info(f"❓ 애매모호 (유사도: {score:.3f}, 이유: {reason})")
-                return {
-                    "answer": None,
-                    "needs_clarification": True,
-                    "clarification_question": self._generate_clarification_question(
-                        matched_category, results
-                    ),
-                    "out_of_scope": False,
-                    "confidence": score
-                }
-            
-            # 5. 답변 생성
-            if score >= 0.70:
-                logger.info(f"✅ FAQ 매칭 (유사도: {score:.3f})")
-                answer = best_match['answer']
-                used_ai = False
-                suggested_action = self._extract_first_action(answer)
-            
-            elif score >= 0.50:
-                logger.info(f"⚠️  중간 매칭 (유사도: {score:.3f})")
-                answer = f"{best_match['answer']}\n\n💡 추가 문의: 고객센터(1234-5678)"
-                used_ai = False
-                suggested_action = self._extract_first_action(answer)
-            
-            else:
-                # AI 사용 (선택)
-                if self.use_ai_fallback and self.ai_client:
-                    logger.info(f"🤖 AI 호출 (유사도: {score:.3f})")
-                    
-                    if self.enable_conversation and session_id and self.conversation:
-                        extended_query = self.conversation.add_context_to_prompt(session_id, query)
-                    else:
-                        extended_query = query
-                    
-                    answer = self._generate_ai_answer(extended_query, results)
-                    used_ai = True
-                    suggested_action = None
-                else:
-                    logger.info(f"❌ 낮은 매칭 (유사도: {score:.3f})")
-                    answer = "명확한 답변을 찾지 못했습니다. 고객센터(1234-5678)로 문의해주세요."
-                    used_ai = False
-                    suggested_action = None
-            
-            # 6. 대화 기록 저장
-            if self.enable_conversation and session_id and self.conversation:
+            # 대화 기록
+            suggested_action = self._extract_first_action(answer)
+            if self.conversation and session_id:
                 self.conversation.add_turn(
                     session_id=session_id,
                     user_query=original_query,
                     bot_response=answer,
                     suggested_action=suggested_action,
-                    faq_id=best_match.get('faq_id')
+                    faq_ids=[r['faq_id'] for r in results],
+                    from_cache=False
                 )
             
             return {
                 "answer": answer,
-                "needs_clarification": False,
-                "out_of_scope": False,
-                "confidence": score,
-                "used_ai": used_ai,
-                "matched_faq_id": best_match['faq_id'],
-                "context_used": original_query != query
+                "confidence": best_score,
+                "from_cache": False,
+                "used_llm": True,
+                "matched_faq_ids": [r['faq_id'] for r in results],
+                "context_used": original_query != query,
+                "pending_verification": True  # 사용자 피드백 대기 중
             }
-                
+            
         except Exception as e:
-            logger.error(f"검색 오류: {e}")
+            logger.error(f"❌ LLM 생성 실패: {e}")
             return {
-                "answer": "검색 중 오류가 발생했습니다.",
-                "needs_clarification": False,
-                "out_of_scope": False
+                "answer": results[0]['answer'],
+                "confidence": best_score,
+                "error": str(e)
             }
     
+    def submit_feedback(self, 
+                       query: str, 
+                       category: str = None,
+                       is_helpful: bool = True,
+                       feedback_score: int = 5,
+                       reason: str = None):
+        """
+        사용자 피드백 제출 (NEW!)
+        
+        Args:
+            query: 질문
+            category: 카테고리
+            is_helpful: 답변이 도움이 되었는지
+            feedback_score: 점수 (1-5)
+            reason: 거부 이유 (is_helpful=False일 때)
+        """
+        if not self.enable_cache or not self.cache:
+            logger.warning("캐시가 비활성화되어 있습니다")
+            return
+        
+        if is_helpful:
+            self.cache.verify(query, category, feedback_score)
+            logger.info(f"  ✅ 긍정 피드백: {query[:30]}... (점수: {feedback_score})")
+        else:
+            self.cache.reject(query, category, reason)
+            logger.info(f"  ❌ 부정 피드백: {query[:30]}...")
+    
+    def get_cache_stats(self) -> Dict:
+        """캐시 통계 조회 (NEW!)"""
+        if not self.enable_cache or not self.cache:
+            return {'cache_enabled': False}
+        
+        stats = self.cache.get_stats()
+        stats['cache_enabled'] = True
+        return stats
+    
+    def _search_faq(self, query: str, category: str = None, top_k: int = 3) -> List[Dict]:
+        """FAQ 검색"""
+        query_embedding = self.model.encode([query], convert_to_numpy=True)
+        faiss.normalize_L2(query_embedding)
+        
+        scores, indices = self.index.search(query_embedding, min(top_k * 2, len(self.faq_df)))
+        
+        results = []
+        for score, idx in zip(scores[0], indices[0]):
+            if score < 0.2:
+                continue
+            
+            faq_row = self.faq_df.iloc[idx]
+            
+            if category and faq_row['category'] != category:
+                continue
+            
+            results.append({
+                'faq_id': faq_row['id'],
+                'category': faq_row['category'],
+                'question': faq_row['question'],
+                'answer': faq_row['answer'],
+                'similarity_score': float(score)
+            })
+            
+            if len(results) >= top_k:
+                break
+        
+        return results
+    
+    def _build_retrieved_context(self, results: List[Dict]) -> str:
+        """검색 결과를 컨텍스트로 구성"""
+        if not results:
+            return ""
+        
+        context = "[검색된 관련 FAQ]\n\n"
+        
+        for i, faq in enumerate(results, 1):
+            context += f"FAQ {i} (유사도: {faq['similarity_score']:.2f}):\n"
+            context += f"질문: {faq['question']}\n"
+            context += f"답변: {faq['answer']}\n\n"
+        
+        return context
+    
+    def _chain_prompts(self, user_query: str, retrieved_context: str, conversation_context: str) -> str:
+        """프롬프트 체인"""
+        prompt = ""
+        
+        if retrieved_context:
+            prompt += retrieved_context
+            prompt += "---\n\n"
+        
+        if conversation_context:
+            prompt += conversation_context
+            prompt += "---\n\n"
+        
+        prompt += f"[고객 질문]\n{user_query}\n\n"
+        prompt += "[지시사항]\n"
+        prompt += "위의 FAQ와 대화 맥락을 참고하여 답변해주세요.\n"
+        
+        return prompt
+    
     def _extract_first_action(self, answer: str) -> Optional[str]:
-        """답변에서 첫 번째 제안 조치 추출"""
+        """첫 번째 조치 추출"""
         match = re.search(r'1\.\s*([^\n]+)', answer)
         if match:
             action = match.group(1).strip()
             action = re.sub(r'\([^)]*\)', '', action).strip()
             return action[:50]
         return None
-    
-    def _search_faq(self, query: str, category: str = None, top_k: int = 3) -> List[Dict]:
-        """FAQ 검색"""
-        if self.index is None:
-            return []
-        
-        try:
-            query_embedding = self.model.encode([query], convert_to_numpy=True)
-            faiss.normalize_L2(query_embedding)
-            
-            scores, indices = self.index.search(query_embedding, min(top_k * 2, len(self.faq_df)))
-            
-            results = []
-            for score, idx in zip(scores[0], indices[0]):
-                if score < 0.2:
-                    continue
-                
-                faq_row = self.faq_df.iloc[idx]
-                
-                if category and faq_row['category'] != category:
-                    continue
-                
-                results.append({
-                    'faq_id': faq_row['id'],
-                    'category': faq_row['category'],
-                    'question': faq_row['question'],
-                    'answer': faq_row['answer'],
-                    'similarity_score': float(score)
-                })
-                
-                if len(results) >= top_k:
-                    break
-            
-            return results
-            
-        except Exception as e:
-            logger.error(f"FAQ 검색 실패: {e}")
-            return []
-    
-    def _generate_ai_answer(self, query: str, faq_results: List[Dict]) -> str:
-        """AI 답변 생성"""
-        if not self.ai_client:
-            return "AI 답변 생성 불가"
-        
-        try:
-            context = ""
-            if faq_results:
-                context = "참고 FAQ:\n"
-                for faq in faq_results[:2]:
-                    context += f"Q: {faq['question']}\nA: {faq['answer'][:100]}...\n\n"
-            
-            response = self.ai_client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": "친절한 고객 지원 AI입니다."},
-                    {"role": "user", "content": f"{context}\n질문: {query}"}
-                ],
-                temperature=0.7,
-                max_tokens=400
-            )
-            
-            answer = response.choices[0].message.content.strip()
-            answer += "\n\n🤖 (AI 생성 답변)"
-            return answer
-            
-        except Exception as e:
-            logger.error(f"AI 생성 실패: {e}")
-            return "AI 답변 생성 중 오류가 발생했습니다."
-    
-    def _generate_out_of_scope_message(self) -> str:
-        """범위 밖 메시지"""
-        return """죄송합니다. 다음 분야만 지원 가능합니다:
 
-✅ **지원 가능 분야**
-• 🛠️  기술 지원 (인터넷, 앱, 기기 문제)
-• 💳 청구 지원 (요금, 결제, 환불)
-• 📦 주문 관리 (주문, 배송, 교환/반품)
-• 👤 계정 관리 (로그인, 비밀번호, 회원정보)
 
-고객센터: 1234-5678"""
-    
-    def get_conversation_summary(self, session_id: str) -> Dict:
-        """대화 맥락 요약"""
-        if not self.enable_conversation or not self.conversation:
-            return {'has_context': False}
-        
-        return self.conversation.get_context_summary(session_id)
+# 편의를 위한 alias
+KnowledgeService = CachedRAGKnowledgeService
 
 
 # ==================== 테스트 ====================
 
-def test_integrated_service():
-    """통합 서비스 테스트"""
+def test_cache_system():
+    """캐시 시스템 테스트"""
     print("\n" + "=" * 70)
-    print("통합 지식 서비스 테스트 (All-in-One)")
+    print("캐시 시스템 테스트")
     print("=" * 70)
     
-    service = KnowledgeService(
+    service = CachedRAGKnowledgeService(
         csv_path="faq_database_48.csv",
-        enable_conversation=True
+        enable_conversation=True,
+        enable_cache=True
     )
     
-    session_id = "test_session_001"
+    session_id = "test_001"
+    query = "인터넷이 안 돼요"
     
-    # 대화 1
-    print("\n[대화 1]")
-    query1 = "인터넷이 안 돼요"
-    result1 = service.search_knowledge(query1, "tech_support", session_id)
+    # 첫 번째 요청 (캐시 미스)
+    print("\n[테스트 1] 첫 번째 요청 (캐시 미스)")
+    result1 = service.search_knowledge(query, "tech_support", session_id)
     
-    print(f"사용자: {query1}")
-    print(f"봇: {result1['answer'][:100]}...")
+    print(f"캐시 사용: {result1.get('from_cache')}")
+    print(f"LLM 사용: {result1.get('used_llm')}")
+    print(f"답변: {result1['answer'][:100]}...")
     
-    # 대화 2 - 지시 대명사
-    print("\n" + "=" * 70)
-    print("[대화 2]")
-    query2 = "그거 했는데도 안 돼요"
-    result2 = service.search_knowledge(query2, "tech_support", session_id)
+    # 긍정 피드백
+    print("\n[테스트 2] 긍정 피드백 제출")
+    service.submit_feedback(
+        query=query,
+        category="tech_support",
+        is_helpful=True,
+        feedback_score=5
+    )
     
-    print(f"사용자: {query2}")
-    print(f"맥락 사용: {result2.get('context_used')}")
-    print(f"봇: {result2['answer'][:100]}...")
+    # 두 번째 요청 (캐시 히트!)
+    print("\n[테스트 3] 두 번째 요청 (캐시 히트)")
+    result2 = service.search_knowledge(query, "tech_support", session_id)
     
-    # 대화 3
-    print("\n" + "=" * 70)
-    print("[대화 3]")
-    query3 = "이것도 안 돼요"
-    result3 = service.search_knowledge(query3, "tech_support", session_id)
+    print(f"캐시 사용: {result2.get('from_cache')}")  # True!
+    print(f"LLM 사용: {result2.get('used_llm')}")    # False!
+    print(f"답변: {result2['answer'][:100]}...")
     
-    print(f"사용자: {query3}")
-    print(f"맥락 사용: {result3.get('context_used')}")
-    
-    summary = service.get_conversation_summary(session_id)
-    print(f"시도한 방법: {summary.get('tried_solutions', [])}")
+    # 캐시 통계
+    print("\n[캐시 통계]")
+    stats = service.get_cache_stats()
+    print(json.dumps(stats, indent=2, ensure_ascii=False))
     
     print("\n" + "=" * 70)
     print("✅ 테스트 완료!")
@@ -685,4 +755,4 @@ def test_integrated_service():
 
 
 if __name__ == "__main__":
-    test_integrated_service()
+    test_cache_system()
