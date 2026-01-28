@@ -43,7 +43,7 @@ class CSAgent:
         # [다이어그램 로직] 주제 벗어남 판별
         if intent == "OFF_TOPIC" or confidence < 0.5:
             return {
-                "answer": "해당 문의는 지원 범위를 벗어납니다. 기술, 청구, 주문 문의를 도와드릴 수 있습니다.",
+                "message": "해당 문의는 지원 범위를 벗어납니다. 기술, 청구, 주문 문의를 도와드릴 수 있습니다.",
                 "type": "off_topic",
                 "intent": intent
             }

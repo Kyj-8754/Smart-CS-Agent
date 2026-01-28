@@ -22,8 +22,14 @@ try:
     import asyncio
     async def test():
         print("Processing query...")
-        result = await agent.process_query("환불이 안 돼요.")
+        query = "너 ai야?"
+        result = await agent.process_query(query)
         print("Result:", result)
+        
+        if "message" in result and result["message"]:
+            print("SUCCESS: Message is properly returned.")
+        else:
+            print("FAILURE: Message is empty or missing.")
     
     asyncio.run(test())
     print("All tests passed!")
