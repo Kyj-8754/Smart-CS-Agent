@@ -1,5 +1,4 @@
 from fastapi import FastAPI
-<<<<<<< HEAD
 from router import router
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -8,17 +7,6 @@ app = FastAPI(title="Smart CS Agent API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 
-=======
-from fastapi.middleware.cors import CORSMiddleware
-from backend.router import router
-
-app = FastAPI(title="Smart CS Agent API")
-
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for dev
->>>>>>> origin/feat/ohs-rag
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
