@@ -51,10 +51,18 @@ class CSAgent:
         
         elif intent == "TECH_SUPPORT":
             # Scenario 2: Technical Support
-            answer = self.knowledge.search_knowledge(query)
+            # knowledge.search_knowledge returns a dict with 'answer', 'confidence', etc.
+            knowledge_result = self.knowledge.search_knowledge(query)
             response_data["type"] = "tech_support"
-            # 만약 지식 베이스 응답이 부족하다면 기본 메시지 제공
-            response_data["message"] = answer or "기술 지원 도와드리겠습니다."
+            
+            if isinstance(knowledge_result, dict):
+                response_data["message"] = knowledge_result.get("answer", "기술 지원 도와드리겠습니다.")
+                # Add metadata from knowledge result to response
+                if "data" not in response_data:
+                    response_data["data"] = {}
+                response_data["data"].update(knowledge_result)
+            else:
+                response_data["message"] = knowledge_result or "기술 지원 도와드리겠습니다."
         
         elif intent == "BILLING":
             # Scenario 3: Billing
