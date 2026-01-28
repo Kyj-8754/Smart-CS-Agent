@@ -10,6 +10,7 @@ class ChatRequest(BaseModel):
     query: str
     conversation_history: Optional[List[Dict[str, Any]]] = []
     session_id: Optional[str] = "test_user_001"
+    user_id: Optional[str] = None
 
 class TransactionApprovalRequest(BaseModel):
     transaction_id: str
@@ -18,7 +19,8 @@ class TransactionApprovalRequest(BaseModel):
 @router.post("/chat")
 async def chat_endpoint(request: ChatRequest):
     try:
-        s_id = getattr(request, 'session_id', "default_user")
+        # user_id가 있으면 우선 사용, 없으면 session_id 사용
+        s_id = request.user_id or request.session_id or "default_user"
 
         # 에이전트 호출 시 session_id 전달
         response = await agent.process_query(
