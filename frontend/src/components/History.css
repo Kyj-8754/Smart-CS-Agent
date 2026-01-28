@@ -1,0 +1,127 @@
+.history-container {
+    padding: 2rem;
+    height: 100%;
+    overflow-y: auto;
+    background-color: #f5f7fa;
+}
+
+.history-title {
+    margin-bottom: 2rem;
+    color: #333;
+}
+
+.history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.history-card {
+    background: white;
+    border-radius: 12px;
+    padding: 1.5rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    transition: transform 0.2s;
+}
+
+.history-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.history-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #eee;
+}
+
+.history-date {
+    color: #888;
+    font-size: 0.9rem;
+}
+
+.history-status {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.status-complete {
+    background-color: #e3f9e5;
+    color: #1f7a24;
+}
+
+.status-info {
+    background-color: #e3f2fd;
+    color: #1976d2;
+}
+
+.history-content {
+    margin-bottom: 1rem;
+}
+
+.query-row,
+.result-row {
+    display: flex;
+    margin-bottom: 0.5rem;
+}
+
+.label {
+    width: 60px;
+    color: #666;
+    font-weight: 500;
+}
+
+.value {
+    color: #333;
+    flex: 1;
+}
+
+.history-footer {
+    display: flex;
+    justify-content: flex-end;
+    padding-top: 0.5rem;
+    border-top: 1px solid #f9f9f9;
+}
+
+.feedback-section {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.9rem;
+    color: #666;
+}
+
+.feedback-btn {
+    background: none;
+    border: 1px solid #ddd;
+    border-radius: 20px;
+    padding: 4px 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.feedback-btn:hover {
+    background-color: #f0f0f0;
+}
+
+.feedback-btn.active {
+    background-color: #e3f2fd;
+    border-color: #2196f3;
+    color: #1976d2;
+    font-weight: bold;
+}
+
+.history-loading,
+.no-history {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 200px;
+    color: #888;
+    font-size: 1.1rem;
+}

@@ -2,11 +2,15 @@ import { useState, useEffect } from 'react';
 import { getCurrentUser, logout } from './services/auth';
 import Login from './components/Login';
 import Chat from './components/Chat';
+import History from './components/History';
+import Sidebar from './components/Sidebar';
 import './App.css';
 
 function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [currentView, setCurrentView] = useState('chat');
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   useEffect(() => {
     const currentUser = getCurrentUser();
@@ -30,7 +34,20 @@ function App() {
   return (
     <>
       {user ? (
-        <Chat user={user} onLogout={handleLogout} />
+        <div className="app-container">
+          <Sidebar
+            user={user}
+            onLogout={handleLogout}
+            isOpen={sidebarOpen}
+            onToggle={() => setSidebarOpen(!sidebarOpen)}
+            activeView={currentView}
+            onViewChange={setCurrentView}
+          />
+          <div className={`main-content ${!sidebarOpen ? 'sidebar-closed' : ''}`}>
+            {currentView === 'chat' && <Chat user={user} />}
+            {currentView === 'history' && <History />}
+          </div>
+        </div>
       ) : (
         <Login onLoginSuccess={handleLogin} />
       )}
