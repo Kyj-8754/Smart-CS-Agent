@@ -21,11 +21,11 @@ class ClassificationService:
         
         self.prompt = ChatPromptTemplate.from_messages([
             ("system", "You are a helpful customer service AI. Classify the user input into one of these categories: \n"
-                       "- 'tech_support': Questions about how to use the product, errors, or technical issues.\n"
-                       "- 'transaction': Requests to cancel orders, change account info, or billing questions.\n"
-                       "- 'chitchat': General greetings or polite conversation.\n"
-                       "- 'off_topic': Profanity, political statements, or questions unrelated to the service.\n\n"
-                       "{format_instructions}"),
+                        "- 'tech_support': Questions about how to use the product, errors, or technical issues.\n"
+                        "- 'transaction': Requests to cancel orders, change account info, or billing questions.\n"
+                        "- 'chitchat': General greetings or polite conversation.\n"
+                        "- 'off_topic': Profanity, political statements, or questions unrelated to the service.\n\n"
+                        "{format_instructions}"),
             ("user", "{query}")
         ]).partial(format_instructions=self.parser.get_format_instructions())
 

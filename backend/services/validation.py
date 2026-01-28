@@ -16,7 +16,7 @@ class ValidationService:
         # Example validation: Ensure transaction requests have explicit approval status
         if response_data.get("type") == "transaction":
             if response_data.get("data", {}).get("status") != "pending_approval":
-                 # In a real app, this might flag an error or force it to pending
-                 pass
+                # In a real app, this might flag an error or force it to pending
+                pass
 
         return {"valid": True}
