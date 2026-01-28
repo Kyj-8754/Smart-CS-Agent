@@ -547,7 +547,7 @@ class KnowledgeService:
         return None
     
     def _search_faq(self, query: str, category: str = None, top_k: int = 3) -> List[Dict]:
-        """FAQ 검색"""
+        """FAQ 검색 (키워드 부스팅 포함)"""
         if self.index is None:
             return []
         
@@ -567,17 +567,29 @@ class KnowledgeService:
                 if category and faq_row['category'] != category:
                     continue
                 
+                final_score = float(score)
+                
+                # 키워드 부스팅 (단어가 포함되어 있으면 점수 보정)
+                if 'keywords' in self.faq_df.columns and pd.notna(faq_row['keywords']):
+                    keywords = [k.strip() for k in faq_row['keywords'].split(',')]
+                    for kw in keywords:
+                        if kw in query:
+                            final_score += 0.1  # 키워드 일치 시 부스팅
+                            break
+                
                 results.append({
                     'faq_id': faq_row['id'],
                     'category': faq_row['category'],
                     'question': faq_row['question'],
                     'answer': faq_row['answer'],
-                    'similarity_score': float(score)
+                    'similarity_score': min(final_score, 1.0)
                 })
                 
                 if len(results) >= top_k:
                     break
             
+            # 부스팅된 점수로 재정렬
+            results.sort(key=lambda x: x['similarity_score'], reverse=True)
             return results
             
         except Exception as e:

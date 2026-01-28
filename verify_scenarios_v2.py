@@ -36,6 +36,20 @@ async def verify_v2():
             "query": "전원이 안 켜져요.",
             "expected_intent": "TECH_SUPPORT",
             "expected_answer": "기술 지원 도와드리겠습니다."
+        },
+        {
+            "id": 5,
+            "name": "Personalized Info (ID)",
+            "query": "내 아이디가 뭐야?",
+            "expected_intent": "ACCOUNT_MGMT",
+            "expected_answer": "아이디는 'test'입니다."
+        },
+        {
+            "id": 6,
+            "name": "General Login FAQ (No Transaction)",
+            "query": "로그인이 안 돼요.",
+            "expected_intent": "ACCOUNT_MGMT",
+            "expected_answer": "해결 방법" # Expecting FAQ answer content
         }
     ]
 
