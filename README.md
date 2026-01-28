@@ -53,7 +53,7 @@ pip install -r requirements.txt
 
 # 서버 실행 (backend 폴더가 있는 루트 경로에서 실행)
 ```bash
-uvicorn backend.app:app --reload
+uvicorn app:app --reload
 ```
 서버는 `http://localhost:8000`에서 실행됩니다.
 

@@ -1,8 +1,35 @@
+#root {
+  width: 100%;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
+}
+
+.app-container {
+  display: flex;
+  width: 100%;
+  height: 100vh;
+  background-color: #f0f2f5;
+}
+
+.main-content {
+  flex: 1;
+  margin-left: 260px;
+  /* Sidebar width */
+  height: 100vh;
+  transition: margin-left 0.3s ease;
+  overflow: hidden;
+}
+
+.main-content.sidebar-closed {
+  margin-left: 0;
+}
+
 .loading {
   display: flex;
   justify-content: center;
   align-items: center;
   height: 100vh;
-  font-size: 18px;
-  color: #1A3263;
+  font-size: 1.2rem;
+  color: #666;
 }
