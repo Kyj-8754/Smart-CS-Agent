@@ -1,5 +1,6 @@
 from fastapi import FastAPI
-from backend.router import router
+'''from backend.router import router'''
+from router import router
 
 app = FastAPI(title="Smart CS Agent API")
 

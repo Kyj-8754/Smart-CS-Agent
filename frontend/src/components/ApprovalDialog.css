@@ -1,0 +1,139 @@
+.approval-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.approval-dialog {
+  background: white;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 550px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.approval-header {
+  padding: 20px 24px;
+  color: white;
+}
+
+.approval-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.approval-content {
+  padding: 24px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.approval-description {
+  font-size: 15px;
+  line-height: 1.6;
+  color: #333;
+  margin: 0 0 20px 0;
+}
+
+.approval-data {
+  background: #f8f9fa;
+  padding: 16px;
+  border-radius: 8px;
+  margin-top: 16px;
+}
+
+.approval-data h4 {
+  margin: 0 0 16px 0;
+  font-size: 14px;
+  color: #547792;
+  font-weight: 600;
+}
+
+.data-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.data-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: white;
+  border-radius: 6px;
+  border: 1px solid #e8e2db;
+}
+
+.data-key {
+  font-weight: 500;
+  color: #1A3263;
+  font-size: 13px;
+}
+
+.data-value {
+  color: #666;
+  font-size: 13px;
+  text-align: right;
+  font-weight: 500;
+}
+
+.data-nested {
+  padding: 12px;
+  background: white;
+  border-radius: 6px;
+  border: 1px solid #e8e2db;
+}
+
+.data-nested strong {
+  display: block;
+  margin-bottom: 8px;
+  color: #1A3263;
+  font-size: 13px;
+}
+
+.data-nested .data-item {
+  margin-left: 12px;
+  padding: 8px 10px;
+  background: #f8f9fa;
+  border: 1px solid #e0e0e0;
+}
+
+.approval-actions {
+  padding: 20px 24px;
+  border-top: 1px solid #E8E2DB;
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.approval-actions button {
+  padding: 11px 28px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.approve-button {
+  color: white;
+}
+
+.reject-button {
+  background: #f5f5f5;
+  color: #666;
+}
+
+.approval-actions button:hover {
+  opacity: 0.9;
+}
