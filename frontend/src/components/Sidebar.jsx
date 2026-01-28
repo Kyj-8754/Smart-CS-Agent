@@ -1,14 +1,14 @@
 import { colors } from '../styles/colors';
 import './Sidebar.css';
 
-const Sidebar = ({ user, onLogout, isOpen, onToggle }) => {
+const Sidebar = ({ user, onLogout, isOpen, onToggle, activeView, onViewChange }) => {
   return (
     <>
       <div className={`sidebar ${!isOpen ? 'sidebar-hidden' : ''}`} style={{ backgroundColor: colors.primary }}>
         <div className="sidebar-header">
           <h2>Smart CS</h2>
         </div>
-        
+
         <div className="sidebar-user">
           <div className="user-avatar">
             {user.name.charAt(0)}
@@ -18,21 +18,22 @@ const Sidebar = ({ user, onLogout, isOpen, onToggle }) => {
             <div className="user-role">{user.role === 'admin' ? '관리자' : '사용자'}</div>
           </div>
         </div>
-        
+
         <div className="sidebar-menu">
-          <div className="menu-item active">
+          <div
+            className={`menu-item ${activeView === 'chat' ? 'active' : ''}`}
+            onClick={() => onViewChange('chat')}
+          >
             <span>채팅</span>
           </div>
-          <div className="menu-item disabled">
+          <div
+            className={`menu-item ${activeView === 'history' ? 'active' : ''}`}
+            onClick={() => onViewChange('history')}
+          >
             <span>대화 기록</span>
-            <small>개발 중</small>
-          </div>
-          <div className="menu-item disabled">
-            <span>설정</span>
-            <small>개발 중</small>
           </div>
         </div>
-        
+
         <div className="sidebar-footer">
           <button onClick={onLogout} className="logout-button">
             로그아웃

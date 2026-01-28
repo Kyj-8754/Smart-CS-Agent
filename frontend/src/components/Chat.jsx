@@ -2,7 +2,6 @@ import { useState, useRef, useEffect } from 'react';
 import { sendMessage, approveTransaction } from '../services/api';
 import Message from './Message';
 import ApprovalDialog from './ApprovalDialog';
-import Sidebar from './Sidebar';
 import { colors } from '../styles/colors';
 import './Chat.css';
 
@@ -11,7 +10,6 @@ const Chat = ({ user, onLogout }) => {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [pendingApproval, setPendingApproval] = useState(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -41,9 +39,9 @@ const Chat = ({ user, onLogout }) => {
         role: msg.role,
         content: msg.content
       }));
-      
-      const response = await sendMessage(input, conversationHistory);
-      
+
+      const response = await sendMessage(input, user.id, conversationHistory);
+
       const assistantMessage = {
         id: Date.now() + 1,
         role: 'assistant',
@@ -79,14 +77,14 @@ const Chat = ({ user, onLogout }) => {
 
     try {
       const result = await approveTransaction(pendingApproval.transactionId, approved);
-      
+
       const resultMessage = {
         id: Date.now(),
         role: 'system',
         content: result.message,
         timestamp: new Date().toISOString()
       };
-      
+
       setMessages(prev => [...prev, resultMessage]);
     } catch (error) {
       console.error('Approval error:', error);
@@ -104,14 +102,7 @@ const Chat = ({ user, onLogout }) => {
 
   return (
     <div className="chat-container">
-      <Sidebar 
-        user={user} 
-        onLogout={onLogout}
-        isOpen={sidebarOpen}
-        onToggle={() => setSidebarOpen(!sidebarOpen)}
-      />
-      
-      <div className={`chat-main ${!sidebarOpen ? 'sidebar-closed' : ''}`}>
+      <div className="chat-main">
         <div className="messages-container">
           {messages.map(msg => (
             <Message key={msg.id} message={msg} />
