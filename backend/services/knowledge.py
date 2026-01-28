@@ -185,7 +185,7 @@ class KnowledgeService:
     """
     
     def __init__(self, 
-                 csv_path: str = "backend/data/faq_database.csv",
+                 csv_path: str = "data/faq_database.csv",
                  model_name: str = "jhgan/ko-sroberta-multitask",
                  use_ai_fallback: bool = False,
                  enable_conversation: bool = True):

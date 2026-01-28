@@ -21,14 +21,15 @@ class ValidationAgent:
         Args:
             api_key: Upstage API Key (.env 파일 또는 환경변수 사용)
         """
-        self.api_key = api_key or os.getenv("UPSTAGE_API_KEY")
-        if not self.api_key:
-            raise ValueError("UPSTAGE_API_KEY가 필요합니다. .env 파일을 확인하세요.")
+        # Upstage API 사용 중단 (2025-01-29)
+        # self.api_key = api_key or os.getenv("UPSTAGE_API_KEY")
+        # if not self.api_key:
+        #     raise ValueError("UPSTAGE_API_KEY가 필요합니다. .env 파일을 확인하세요.")
         
-        self.client = OpenAI(
-            api_key=self.api_key,
-            base_url="https://api.upstage.ai/v1"
-        )
+        # self.client = OpenAI(
+        #     api_key=self.api_key,
+        #     base_url="https://api.upstage.ai/v1"
+        # )
         self.model = "solar-pro3"
         
     def validate_response(
@@ -53,17 +54,24 @@ class ValidationAgent:
             }
         """
         
-        # 대화 맥락 구성
-        context = self._build_context(conversation_history)
-        
-        # 검증 프롬프트
-        prompt = self._build_validation_prompt(query, response, context)
-        
-        # Solar Pro 2 호출
-        result = self._call_solar_pro(prompt)
-        
-        # 결과 파싱
-        return self._parse_validation_result(result, response)
+        # Upstage API 사용 중단으로 인한 Bypass (2025-01-29)
+        return {
+            "valid": True,
+            "issues": [],
+            "filtered_response": response
+        }
+
+        # # 대화 맥락 구성
+        # context = self._build_context(conversation_history)
+        # 
+        # # 검증 프롬프트
+        # prompt = self._build_validation_prompt(query, response, context)
+        # 
+        # # Solar Pro 2 호출
+        # result = self._call_solar_pro(prompt)
+        # 
+        # # 결과 파싱
+        # return self._parse_validation_result(result, response)
     
     def _build_context(self, history: Optional[List[Dict]]) -> str:
         """대화 히스토리에서 맥락 추출"""
