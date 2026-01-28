@@ -10,8 +10,10 @@ class KnowledgeService:
         try:
             self.embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
             
-            # Mock Data for Technical Support
+            # Mock Data for Technical Support and Account Management
             text_data = [
+                "전원이 안 켜지는 경우 하드웨어 트러블슈팅을 진행하세요. 전원 케이블 연결 상태를 확인하고, 배터리 잔량을 체크하십시오.",
+                "아이디가 기억나지 않거나 비밀번호를 잊어버린 경우 계정 찾기 및 비밀번호 재설정 메뉴를 이용하세요. 본인 인증이 필요할 수 있습니다.",
                 "To reset your router, press and hold the reset button for 10 seconds.",
                 "Error 404 indicates the page was not found. Check the URL.",
                 "The blue light indicates the device is connected to Wi-Fi.",

@@ -14,11 +14,16 @@ class TransactionService:
         Real implementation would parse specific details from the query.
         """
         
-        # Mock logic based on keywords
-        if "cancel" in intent.lower() or "cancel" in entity.lower() if entity else False:
+        # Mock logic based on keywords or intent
+        intent_lower = intent.upper()
+        if intent_lower == "BILLING":
+            action_type = "billing_support"
+        elif intent_lower == "ORDER":
+            action_type = "order_management"
+        elif intent_lower == "ACCOUNT_MGMT":
+            action_type = "account_management"
+        elif "cancel" in entity.lower() if entity else False:
             action_type = "cancel_order"
-        elif "change" in intent.lower() or "modify" in intent.lower():
-            action_type = "modify_account"
         else:
             action_type = "general_transaction"
 
