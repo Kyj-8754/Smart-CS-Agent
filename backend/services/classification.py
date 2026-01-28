@@ -7,10 +7,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from langchain_community.vectorstores import FAISS
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain.schema import Document
+
 class ClassificationResult(BaseModel):
     intent: str = Field(description="The classification intent: 'OFF_TOPIC', 'TECH_SUPPORT', 'BILLING', 'ORDER', or 'ACCOUNT_MGMT'")
     confidence: float = Field(description="Confidence score between 0.0 and 1.0")
-    reasoning: str = Field(description="Brief explanation for the classification")
+    reasoning: str = Field(description="Brief explanation for the classification using historical cases and keywords")
 
 class ClassificationService:
     def __init__(self):
@@ -19,6 +23,21 @@ class ClassificationService:
         self.llm = ChatOpenAI(model="gpt-4o", temperature=0)
         self.parser = PydanticOutputParser(pydantic_object=ClassificationResult)
         
+        # Initialize RAG for classification using historical cases
+        try:
+            self.embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+            historical_cases = [
+                Document(page_content="로그인 문제, 비밀번호 초기화, 아이디 찾기 관련 문의", metadata={"intent": "ACCOUNT_MGMT"}),
+                Document(page_content="환불 요청, 결제 오류, 청구서 확인 관련 문의", metadata={"intent": "BILLING"}),
+                Document(page_content="전원이 안 켜짐, 오류 메시지, 설치 방법 관련 문의", metadata={"intent": "TECH_SUPPORT"}),
+                Document(page_content="주문 조회, 배송 상태, 주문 변경 관련 문의", metadata={"intent": "ORDER"}),
+                Document(page_content="너 누구니?, 날씨 어때?, 욕설, 잡답", metadata={"intent": "OFF_TOPIC"})
+            ]
+            self.db = FAISS.from_documents(historical_cases, self.embeddings)
+        except Exception as e:
+            print(f"Classification RAG Init Error: {e}")
+            self.db = None
+
         self.prompt = ChatPromptTemplate.from_messages([
             ("system", "You are a helpful customer service AI. Classify the user input into one of these categories: \n"
                         "- 'OFF_TOPIC': Questions unrelated to the service (e.g., 'Are you AI?', general chat, profanity).\n"
@@ -26,6 +45,7 @@ class ClassificationService:
                         "- 'BILLING': Payment, refunds, billing, amounts, receipts (Keywords: 결제, 환불, 청구, 금액, 영수증).\n"
                         "- 'ORDER': Order status, delivery, shipping, cancellation, changes (Keywords: 주문, 배송, 취소, 변경, 택배).\n"
                         "- 'ACCOUNT_MGMT': Login, password, account info, ID, authentication (Keywords: 로그인, 비밀번호, 계정, 아이디, 인증).\n\n"
+                        "Reference historical cases: {historical_context}\n"
                         "Use keyword matching and semantic similarity to decide. If multiple categories match, pick the most relevant one.\n"
                         "{format_instructions}"),
             ("user", "{query}")
@@ -33,7 +53,14 @@ class ClassificationService:
 
     async def classify_intent(self, query: str) -> dict:
         try:
-            input_msg = self.prompt.invoke({"query": query})
+            # Step 1: Retrieve similar historical cases (RAG)
+            historical_context = "No historical context available."
+            if self.db:
+                docs = self.db.similarity_search(query, k=2)
+                historical_context = "\n".join([f"- Input: {d.page_content} => Intent: {d.metadata['intent']}" for d in docs])
+
+            # Step 2: LLM Classification with Context
+            input_msg = self.prompt.invoke({"query": query, "historical_context": historical_context})
             # This requires an actual API call. If no key is present, this will fail.
             # For now, we'll wrap it or use a mockup if env is missing.
             if not os.getenv("OPENAI_API_KEY"):
