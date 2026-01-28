@@ -35,7 +35,7 @@ class AnswerCache:
     3. 캐시 히트 시 즉시 반환 (LLM 호출 없음)
     """
     
-    def __init__(self, cache_file: str = "backend/data/answer_cache.json"):
+    def __init__(self, cache_file: str = "data/answer_cache.json"):
         self.cache_file = Path(cache_file)
         self.cache = self._load_cache()
         self.embeddings_cache = {}  # 빠른 검색을 위한 임베딩 캐시
@@ -701,58 +701,33 @@ class CachedRAGKnowledgeService:
 # 편의를 위한 alias
 KnowledgeService = CachedRAGKnowledgeService
 
-
 # ==================== 테스트 ====================
 
 def test_cache_system():
-    """캐시 시스템 테스트"""
     print("\n" + "=" * 70)
     print("캐시 시스템 테스트")
     print("=" * 70)
     
-    service = CachedRAGKnowledgeService(
-        csv_path="faq_database_48.csv",
-        enable_conversation=True,
-        enable_cache=True
-    )
-    
-    session_id = "test_001"
+    # 본인의 실제 파일명 확인 필수 
+    csv_file = "faq_database.csv" 
+    if not os.path.exists(csv_file):
+        with open(csv_file, "w", encoding="utf-8") as f:
+            f.write("id,category,question,answer,keywords\nfaq_001,tech_support,인터넷 안됨,공유기를 껐다 켜세요,인터넷")
+
+    service = KnowledgeService(csv_path=csv_file)
+    session_id = "test_user_123"
     query = "인터넷이 안 돼요"
     
-    # 첫 번째 요청 (캐시 미스)
     print("\n[테스트 1] 첫 번째 요청 (캐시 미스)")
-    result1 = service.search_knowledge(query, "tech_support", session_id)
+    res1 = service.search_knowledge(query, "tech_support", session_id)
+    print(f"캐시 사용: {res1['from_cache']} | 답변: {res1['answer'][:50]}...")
     
-    print(f"캐시 사용: {result1.get('from_cache')}")
-    print(f"LLM 사용: {result1.get('used_llm')}")
-    print(f"답변: {result1['answer'][:100]}...")
-    
-    # 긍정 피드백
     print("\n[테스트 2] 긍정 피드백 제출")
-    service.submit_feedback(
-        query=query,
-        category="tech_support",
-        is_helpful=True,
-        feedback_score=5
-    )
+    service.submit_feedback(query, "tech_support", True)
     
-    # 두 번째 요청 (캐시 히트!)
     print("\n[테스트 3] 두 번째 요청 (캐시 히트)")
-    result2 = service.search_knowledge(query, "tech_support", session_id)
-    
-    print(f"캐시 사용: {result2.get('from_cache')}")  # True!
-    print(f"LLM 사용: {result2.get('used_llm')}")    # False!
-    print(f"답변: {result2['answer'][:100]}...")
-    
-    # 캐시 통계
-    print("\n[캐시 통계]")
-    stats = service.get_cache_stats()
-    print(json.dumps(stats, indent=2, ensure_ascii=False))
-    
-    print("\n" + "=" * 70)
-    print("✅ 테스트 완료!")
-    print("=" * 70)
-
+    res2 = service.search_knowledge(query, "tech_support", session_id)
+    print(f"캐시 사용: {res2['from_cache']} | 답변: {res2['answer'][:50]}...")
 
 if __name__ == "__main__":
     test_cache_system()
