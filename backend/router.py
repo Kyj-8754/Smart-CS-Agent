@@ -9,6 +9,7 @@ agent = CSAgent()
 class ChatRequest(BaseModel):
     query: str
     conversation_history: Optional[List[Dict[str, Any]]] = []
+    session_id: Optional[str] = "test_user_001"
 
 class TransactionApprovalRequest(BaseModel):
     transaction_id: str
@@ -17,15 +18,21 @@ class TransactionApprovalRequest(BaseModel):
 @router.post("/chat")
 async def chat_endpoint(request: ChatRequest):
     try:
-        response = await agent.process_query(request.query, request.conversation_history)
+        s_id = getattr(request, 'session_id', "default_user")
+
+        # 에이전트 호출 시 session_id 전달
+        response = await agent.process_query(
+            request.query, 
+            request.conversation_history,
+            session_id=s_id  # 님의 B파트 기능을 위해 추가
+        )
         
-        # 프론트엔드가 기대하는 형식으로 변환
-        # 프론트엔드는 data.answer를 기대하므로 message를 answer로 매핑
         transformed_response = {
             "answer": response.get("message", ""),
             "type": response.get("type", "unknown"),
             "intent": response.get("intent", ""),
             "classification_details": response.get("classification_details", {}),
+            "from_cache": response.get("from_cache", False), # B파트의 캐시 사용 여부 추가
             "data": response.get("data", None)
         }
         
