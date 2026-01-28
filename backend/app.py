@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from router import router
+from backend.router import router
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="Smart CS Agent API")

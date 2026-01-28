@@ -8,32 +8,33 @@ TODO: conversation_history 구현
 - ValidationAgent에 전달하여 맥락 기반 검증
 """
 
-from services.classification import ClassificationService
-from services.knowledge import KnowledgeService
-from services.transaction import TransactionService
-from services.validation import ValidationAgent
+import os
+from backend.services.classification import ClassificationService
+from backend.services.knowledge import KnowledgeService
+from backend.services.transaction import TransactionService
+from backend.services.validation import ValidationService
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
-import settings
+try:
+    from backend import settings
+except ImportError:
+    class settings:
+        MODEL_NAME = "gpt-4o"
+        OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 class CSAgent:
     def __init__(self):
         self.classifier = ClassificationService()
         self.knowledge = KnowledgeService()
         self.transaction = TransactionService()
-        self.validator = ValidationAgent()
-        
-        self.llm = ChatOpenAI(
-            model=settings.MODEL_NAME,
-            temperature=0.0, # 분류를 위해 0으로 설정
-            api_key=settings.OPENAI_API_KEY
-        )
+        self.validator = ValidationService()
+        self.confidence_threshold = 0.7
 
     async def process_query(self, query: str, conversation_history: list = None):
-        # Step A: Classification via LLM
-        intent = self._classify_intent_llm(query)
-        
-        classification = {"intent": intent} # 호환성을 위해 구조 유지
+        # Step A: Classification with RAG
+        classification = await self.classifier.classify_intent(query)
+        intent = classification.get("intent")
+        confidence = classification.get("confidence", 0.0)
         
         response_data = {
             "query": query,
@@ -46,48 +47,70 @@ class CSAgent:
             "TECH_SUPPORT": "tech_support",
             "BILLING": "billing_support",
             "ORDER": "order_management",
-            "ACCOUNT_MGMT": "account_management"
+            "ACCOUNT_MGMT": "account_management",
+            "transaction": "order_management" # compatibility
         }
         category = intent_map.get(intent)
 
         # Step B/C: Action based on intent
         if intent == "OFF_TOPIC" or confidence < self.confidence_threshold:
-            # Exception Case: Low Confidence or explicitly Off-Topic
-            response_data["intent"] = "OFF_TOPIC"
             response_data["type"] = "off_topic"
             response_data["answer"] = "해당 문의는 고객 지원 범위에 포함되지 않습니다. 기술 문제, 청구, 주문, 계정 관련 문의 중 어떤 도움이 필요하신가요?"
         
         elif intent == "TECH_SUPPORT":
-            # Knowledge RAG (CSV)
             rag_result = self.knowledge.search_knowledge(query, category=category)
             response_data["type"] = "tech_support"
-            response_data["message"] = answer
+            response_data["answer"] = rag_result.get("answer") or "기술 지원 도와드리겠습니다."
+            response_data["rag_info"] = rag_result
         
-        elif intent == "transaction":
-            # Transaction Processing
-            # Mock Logged-in User: user_001 (Kim Cheol-su)
-            transaction_result = self.transaction.process_transaction(intent, entity=query, user_id="user_001") 
-            response_data["type"] = "transaction"
-            response_data["data"] = transaction_result
-            response_data["message"] = transaction_result.get("message", "처리되었습니다.")
+        elif intent == "BILLING" or intent == "transaction": # Map transaction to BILLING if it looks like refund
+            if "환불" in query or "결제" in query:
+                rag_result = self.knowledge.search_knowledge(query, category="billing_support")
+                response_data["type"] = "billing"
+                response_data["answer"] = rag_result.get("answer")
+                
+                # Action Trigger
+                action_keywords = ["신청", "해줘", "해주세오", "해달라"]
+                if any(k in query for k in action_keywords):
+                    transaction_result = self.transaction.process_transaction("BILLING", entity=query, user_id="user_001")
+                    response_data["data"] = transaction_result
+                    if transaction_result.get("message"):
+                        response_data["answer"] = transaction_result["message"]
+            else:
+                # Other transactions
+                transaction_result = self.transaction.process_transaction(intent, entity=query, user_id="user_001")
+                response_data["type"] = "transaction"
+                response_data["data"] = transaction_result
+                response_data["answer"] = transaction_result.get("message", "처리되었습니다.")
+
+        elif intent == "ORDER":
+            rag_result = self.knowledge.search_knowledge(query, category="order_management")
+            response_data["type"] = "order"
+            response_data["answer"] = rag_result.get("answer")
             
+            action_keywords = ["취소", "변경", "수정", "반품"]
+            if any(k in query for k in action_keywords):
+                transaction_result = self.transaction.process_transaction(intent, entity=query, user_id="user_001")
+                response_data["data"] = transaction_result
+                if transaction_result.get("message"):
+                    response_data["answer"] = transaction_result["message"]
+
         elif intent == "chitchat":
             response_data["type"] = "chitchat"
-            response_data["message"] = "안녕하세요! 무엇을 도와드릴까요?"
+            response_data["answer"] = "안녕하세요! 무엇을 도와드릴까요?"
             
         else:
             response_data["type"] = "off_topic"
-            response_data["message"] = "죄송합니다. 기술 지원이나 주문 관련 문의만 답변 드릴 수 있습니다."
+            response_data["answer"] = "죄송합니다. 기술 지원이나 주문 관련 문의만 답변 드릴 수 있습니다."
 
-        # Step D: Validation (using ValidationAgent)
-        validation = self.validator.validate_response(
-            query=query,
-            response=str(response_data.get("message", "")),
-            conversation_history=conversation_history or [] 
-        )
-        
+        # Compatibility for message/answer
+        response_data["message"] = response_data.get("answer")
+
+        # Step D: Final Guardrail Validation
+        validation = self.validator.validate_output(response_data)
         if not validation["valid"]:
-             response_data["message"] = validation["filtered_response"]
+             response_data["answer"] = validation["safe_response"]
+             response_data["message"] = validation["safe_response"]
              response_data["blocked"] = True
              response_data["validation_issues"] = validation.get("issues", [])
 

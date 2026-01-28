@@ -1,7 +1,7 @@
 from typing import List, Dict, Optional, Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from agent import CSAgent
+from backend.agent import CSAgent
 
 router = APIRouter()
 agent = CSAgent()

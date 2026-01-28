@@ -1,3 +1,9 @@
+"""
+A파트: 분류용 RAG
+부적절한 질문(욕설, 주제 이탈)을 걸러내는 가드레일 로직을 구현
+사용자 질문을 과거 질문 cvs(cases.csv)와 대조하여 의도를 파악
+"""
+
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser

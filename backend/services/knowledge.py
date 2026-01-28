@@ -393,8 +393,8 @@ class CachedRAGKnowledgeService:
     """
     
     def __init__(self, 
-                 csv_path: str = "data/faq_database.csv",
-                 cache_file: str = "data/answer_cache.json",
+                 csv_path: str = "backend/data/faq_database.csv",
+                 cache_file: str = "backend/data/answer_cache.json",
                  model_name: str = "jhgan/ko-sroberta-multitask",
                  enable_conversation: bool = True,
                  enable_cache: bool = True,
@@ -678,16 +678,24 @@ class CachedRAGKnowledgeService:
     
     def _generate_ai_answer(self, query: str, faq_results: List[Dict]) -> str:
         """AI 답변 생성"""
-        if not self.ai_client:
+        if not hasattr(self, 'llm_agent'):
             return "AI 답변 생성 불가"
         
         context = "[검색된 관련 FAQ]\n\n"
         
-        for i, faq in enumerate(results, 1):
+        for i, faq in enumerate(faq_results, 1):
             context += f"FAQ {i} (유사도: {faq['similarity_score']:.2f}):\n"
             context += f"질문: {faq['question']}\n"
             context += f"답변: {faq['answer']}\n\n"
         
+        return context
+
+    def _build_retrieved_context(self, results: List[Dict]) -> str:
+        """검색된 FAQ를 컨텍스트 문자열로 변환"""
+        context = "[관련 FAQ 정보]\n"
+        for i, res in enumerate(results, 1):
+            context += f"{i}. 질문: {res['question']}\n"
+            context += f"   답변: {res['answer']}\n\n"
         return context
     
     def _chain_prompts(self, user_query: str, retrieved_context: str, conversation_context: str) -> str:
